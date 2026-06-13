@@ -1,0 +1,19 @@
+{
+  "name": "claude-arena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A living RTS/aquarium that visualizes your Claude Code activity. Every project is a tribe, every session an avatar, every subagent a unit. Driven entirely by Claude Code hooks.",
+  "type": "commonjs",
+  "bin": {
+    "claude-arena": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo",
+    "install-hooks": "node install.js",
+    "uninstall-hooks": "node uninstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

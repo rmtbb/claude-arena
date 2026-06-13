@@ -1,0 +1,12 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# logs / local runtime
+*.log
+node_modules/
+
+# the arena's event data + curation live under ~/.claude/claude-arena, never here,
+# but ignore them defensively in case anyone points CLAUDE_ARENA_HOME at the repo
+events.ndjson
+overrides.json

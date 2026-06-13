@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1018"/>
+      <stop offset="1" stop-color="#05070b"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff8ac0"/>
+      <stop offset="0.5" stop-color="#ff5d9e"/>
+      <stop offset="1" stop-color="#ff5d9e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="rgba(255,255,255,.10)"/>
+  <!-- hex base -->
+  <polygon points="32,11 49,21 49,43 32,53 15,43 15,21" fill="none"
+           stroke="#6cc6ff" stroke-width="3.2" stroke-linejoin="round" filter="url(#glow)" opacity="0.95"/>
+  <!-- inner ring -->
+  <polygon points="32,20 42,26 42,38 32,44 22,38 22,26" fill="none"
+           stroke="#6cc6ff" stroke-width="1.6" stroke-linejoin="round" opacity="0.5"/>
+  <!-- glowing core -->
+  <circle cx="32" cy="32" r="11" fill="url(#core)"/>
+  <circle cx="32" cy="32" r="4.4" fill="#fff" filter="url(#glow)"/>
+</svg>

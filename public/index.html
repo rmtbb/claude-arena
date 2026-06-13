@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Claude Arena</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚔️</text></svg>" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body data-skin="rts">
+  <canvas id="stage"></canvas>
+
+  <!-- top-left title + live -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">⚔</span>
+      <div>
+        <div class="title">CLAUDE ARENA</div>
+        <div class="subtitle">a living map of your projects</div>
+      </div>
+    </div>
+    <div class="live"><span id="live-dot" class="dot"></span>LIVE</div>
+  </header>
+
+  <!-- HUD stats -->
+  <div id="hud">
+    <div class="stat"><div class="num" id="hud-factions">0</div><div class="lbl">tribes</div></div>
+    <div class="stat"><div class="num" id="hud-units">0</div><div class="lbl">avatars</div></div>
+    <div class="stat"><div class="num" id="hud-drones">0</div><div class="lbl">subagents</div></div>
+  </div>
+
+  <!-- skin switcher -->
+  <div id="skins"></div>
+
+  <!-- toolbar -->
+  <div id="toolbar">
+    <button id="btn-frame" title="Frame all (R)">⤢ Frame</button>
+    <button id="btn-demo" title="Inject a burst of demo life">✦ Demo</button>
+    <button id="btn-shot" title="Save a screenshot">⤓ Shot</button>
+  </div>
+
+  <!-- ticker -->
+  <div id="ticker-wrap"><div id="ticker"></div></div>
+
+  <!-- hint -->
+  <div id="hint">drag to pan · scroll to zoom · <b>Tab</b> swaps skins · click a base to curate</div>
+
+  <!-- curate panel -->
+  <aside id="curate">
+    <div class="c-head">
+      <span id="c-swatch" class="swatch"></span>
+      <span>Curate tribe</span>
+      <button id="c-close" class="x">✕</button>
+    </div>
+    <label>Name<input id="c-name" type="text" maxlength="40" /></label>
+    <label>Motto<input id="c-motto" type="text" maxlength="60" placeholder="optional battle cry" /></label>
+    <label>Color<input id="c-hue" type="range" min="0" max="359" /></label>
+    <label>Crest<input id="c-crest" type="range" min="0" max="11" /></label>
+    <div id="c-stats" class="c-stats"></div>
+    <button id="c-save" class="save">Save tribe</button>
+  </aside>
+
+  <script src="/util.js"></script>
+  <script src="/sim.js"></script>
+  <script src="/renderers/rts.js"></script>
+  <script src="/renderers/aquarium.js"></script>
+  <script src="/renderers/cyber.js"></script>
+  <script src="/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Arena — your Claude Code activity, as a living RTS</title>
+<meta name="description" content="Every project becomes a tribe. Every Claude session, an avatar. Every subagent, a drone. A living StarCraft-meets-aquarium world that draws itself from your Claude Code hooks — runs locally, in your browser." />
+<meta name="theme-color" content="#05070b" />
+
+<!-- Open Graph / iMessage / Slack / Discord preview -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Claude Arena" />
+<meta property="og:url" content="https://claudearena.remotebb.com/" />
+<meta property="og:title" content="Claude Arena — your Claude Code activity, as a living RTS" />
+<meta property="og:description" content="Projects become tribes. Sessions become avatars. Subagents become drones. A living world that draws itself from your Claude Code hooks — local, private, and weirdly mesmerizing." />
+<meta property="og:image" content="https://claudearena.remotebb.com/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A neon top-down RTS map of glowing tribal bases with units swarming between them." />
+
+<!-- Twitter/X -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Claude Arena — your Claude Code activity, as a living RTS" />
+<meta name="twitter:description" content="Projects become tribes. Sessions become avatars. Subagents become drones. Drawn live from your Claude Code hooks." />
+<meta name="twitter:image" content="https://claudearena.remotebb.com/assets/og.png" />
+
+<!-- Favicons -->
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<!-- ===================== HERO (live arena behind it) ===================== -->
+<section class="hero">
+  <canvas id="arena-stage"></canvas>
+  <div class="hero-scrim"></div>
+
+  <div class="hero-top">
+    <div class="wordmark"><span class="sword">⚔</span> CLAUDE ARENA</div>
+    <div class="live-badge"><span class="pip"></span> LIVE · this demo is running right now</div>
+  </div>
+
+  <div class="hero-content">
+    <h1>Your Claude Code sessions,<br><span class="grad">as a living world.</span></h1>
+    <p class="lede">
+      Every project is a <b>tribe</b>. Every session is an <b>avatar</b> that marches out and works.
+      Every subagent is a <b>drone</b>. Tools become resources to harvest, errors make units stumble,
+      compaction summons a storm. It draws itself — live — from your Claude Code hooks.
+    </p>
+
+    <div class="stat-row">
+      <div class="stat"><span id="stat-tribes">6</span><label>tribes</label></div>
+      <div class="stat"><span id="stat-units">0</span><label>avatars</label></div>
+      <div class="stat"><span id="stat-drones">0</span><label>drones</label></div>
+    </div>
+
+    <div class="skin-toggle" role="group" aria-label="Switch visual skin">
+      <button data-skin="rts"><span>⚔</span> RTS</button>
+      <button data-skin="aquarium"><span>🐠</span> Aquarium</button>
+      <button data-skin="cyber"><span>⚡</span> Cyber</button>
+    </div>
+
+    <div class="cta-row">
+      <a class="btn primary" href="https://github.com/rmtbb/claude-arena">★ Get it on GitHub</a>
+      <a class="btn ghost" href="#how">How it works ↓</a>
+    </div>
+    <div class="hero-hint">↑ that's a real game running. drag to pan · scroll to zoom · swap the skin.</div>
+  </div>
+</section>
+
+<!-- ===================== PITCH ===================== -->
+<section class="band">
+  <div class="wrap narrow center">
+    <h2>You spin up four agents across three projects. Then you watch&nbsp;text&nbsp;scroll.</h2>
+    <p class="big-muted">
+      Claude Arena turns that firehose into something you actually <i>want</i> to glance at. Leave it open on a
+      second monitor and check on it like a fish tank — except the fish are your own sessions grinding through
+      your real work. It's an ambient, curatable record of where your attention actually went.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== SKINS ===================== -->
+<section class="band alt" id="skins">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>Three worlds. One backend.</h2>
+      <p>Same simulation, same data, three completely different ways to look at it. Swap any time — the toggle's right up there in the hero.</p>
+    </div>
+    <div class="cards">
+      <article class="card">
+        <img src="/assets/skin-rts.png" alt="RTS skin — top-down bases and harvesting units" loading="lazy" />
+        <div class="card-body">
+          <h3><span class="emoji">⚔</span> RTS</h3>
+          <p>Top-down StarCraft energy. Command centers, hex resource nodes, little visored workers with marching legs, and territory that visibly grows as a project levels up.</p>
+        </div>
+      </article>
+      <article class="card">
+        <img src="/assets/skin-aquarium.png" alt="Aquarium skin — coral reefs and fish" loading="lazy" />
+        <div class="card-body">
+          <h3><span class="emoji">🐠</span> Aquarium</h3>
+          <p>A cozy reef tank. Bases are coral, units are fish, tools are anemones, light shafts drift through the water. The leave-it-open-and-feel-calm mode.</p>
+        </div>
+      </article>
+      <article class="card">
+        <img src="/assets/skin-cyber.png" alt="Cyber skin — neon grid and glowing nodes" loading="lazy" />
+        <div class="card-body">
+          <h3><span class="emoji">⚡</span> Cyber</h3>
+          <p>Dark grid, neon everything, glowing motion trails, energy conduits pulsing packets between nodes. Engineered to look unfairly good in a screenshot.</p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== EVENT TABLE ===================== -->
+<section class="band" id="how">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>Every hook becomes a move.</h2>
+      <p>The whole thing is a state machine fed by Claude Code's hook events. Nothing scripted, nothing faked — your actual workflow choreographs the world.</p>
+    </div>
+    <div class="evt-grid">
+      <div class="evt"><code>SessionStart</code><span>a worker awakens — spawns from the base in a burst</span></div>
+      <div class="evt"><code>UserPromptSubmit</code><span>that worker perks up with a <b>!</b> — new orders</span></div>
+      <div class="evt"><code>PreToolUse · Bash</code><span>marches to the <b>gas geyser</b> to run commands</span></div>
+      <div class="evt"><code>PreToolUse · Edit/Write</code><span>harvests <b>mineral crystals</b> — building things</span></div>
+      <div class="evt"><code>PreToolUse · Read/Grep</code><span>heads to the <b>watchtower</b> to scout</span></div>
+      <div class="evt"><code>PreToolUse · Task</code><span>spawns a <b>drone</b> that fans out — your subagent</span></div>
+      <div class="evt"><code>PostToolUse</code><span>hauls the resource home, <b>+1</b>, stockpile grows</span></div>
+      <div class="evt"><code>PostToolUse · error</code><span>the unit <b>stumbles</b> in a puff of red</span></div>
+      <div class="evt"><code>SubagentStop</code><span>a drone zooms back to base and <b>merges</b></span></div>
+      <div class="evt"><code>Stop</code><span>the worker heads home and takes a nap <b>(z)</b></span></div>
+      <div class="evt"><code>SessionEnd</code><span>it salutes and walks back in — but its work counts forever</span></div>
+      <div class="evt"><code>PreCompact</code><span>a <b>memory storm</b> swirls units around the base</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== GROWS / CURATE ===================== -->
+<section class="band alt">
+  <div class="wrap two">
+    <div>
+      <h2>It grows. That's the point.</h2>
+      <p class="big-muted">This isn't a dashboard that resets when you blink. The server keeps lifetime stats per tribe — tools harvested, sessions ever run, subagents deployed — and each tribe <b>levels up</b>. Higher level means bigger territory, more outlying buildings, taller coral, a longer neon perimeter.</p>
+      <p class="big-muted">Leave it running a week and your busiest repo becomes a sprawling capital while that thing you touched twice stays a humble outpost.</p>
+    </div>
+    <div>
+      <h2>Curate your tribes.</h2>
+      <p class="big-muted">Click any base. Rename it, give it a motto, pick its color and one of twelve procedural crests. <i>async-armada</i> becomes <i>Async Armada, Breaker of Builds</i> and stays that way. Build your little lore. Nobody's stopping you.</p>
+      <p class="big-muted">Names default from your folder, prettified — <code>my-cool-app</code> → "My Cool App".</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PIPELINE / PRIVACY ===================== -->
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>How it actually works.</h2>
+      <p>A hook drops a line in a file, a tiny local server reads the file, your browser draws a world. That's the whole trick. Zero dependencies — Node built-ins and a canvas.</p>
+    </div>
+    <pre class="pipe">
+<span class="c1">Claude Code</span>  ──fires a hook on every event──▶  <span class="c2">arena-hook.sh</span>
+                                            (tiny, fast, never blocks Claude)
+                                                     │ appends one line
+                                                     ▼
+                                        <span class="c3">~/.claude/claude-arena/events.ndjson</span>
+                                                     │ tailed + normalized
+                                                     ▼
+   <span class="c2">server.js</span>  ──static UI + live SSE stream──▶  <span class="c1">your browser</span>
+   (lifetime tribe stats)                   (one sim · three skins · all canvas)</pre>
+    <div class="privacy">
+      <h3>🔒 Private by construction</h3>
+      <p>The server binds to <code>127.0.0.1</code> only. The browser is told <b>that</b> something happened — event type, project name, tool name — but never <b>what</b>. Your prompt text and tool output never leave the server. Nothing is sent anywhere; there's no analytics. The arena genuinely doesn't need to know what you're working on to draw a fish.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== INSTALL ===================== -->
+<section class="band alt" id="install">
+  <div class="wrap narrow">
+    <div class="band-head center">
+      <h2>Install in 30 seconds.</h2>
+      <p>Node 18+. No <code>npm install</code>, no build step, no account. It backs up your settings before touching anything.</p>
+    </div>
+    <pre class="code"><span class="dim"># 1. wire the capture hook into Claude Code (backs up settings first)</span>
+node install.js
+
+<span class="dim"># 2. start the arena</span>
+node server.js
+
+<span class="dim"># 3. open it</span>
+open http://localhost:4787</pre>
+    <p class="center"><span class="big-muted">Then go use Claude Code like you normally would. The world fills itself in.</span></p>
+    <div class="cta-row center">
+      <a class="btn primary" href="https://github.com/rmtbb/claude-arena">★ Get it on GitHub</a>
+      <a class="btn ghost" href="https://github.com/rmtbb/claude-arena#readme">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap center">
+    <div class="foot-mark"><span class="sword">⚔</span> CLAUDE ARENA</div>
+    <p class="dim">Runs locally · binds to localhost · your data stays yours.<br>
+    Built to be left open in the corner of a second monitor while you and a small army of Claudes get things done.</p>
+    <p class="dim small">Made with Claude Code · <a href="https://github.com/rmtbb/claude-arena">github.com/rmtbb/claude-arena</a></p>
+  </div>
+</footer>
+
+<script src="/arena/util.js"></script>
+<script src="/arena/sim.js"></script>
+<script src="/arena/renderers/rts.js"></script>
+<script src="/arena/renderers/aquarium.js"></script>
+<script src="/arena/renderers/cyber.js"></script>
+<script src="/arena/embed.js"></script>
+</body>
+</html>
