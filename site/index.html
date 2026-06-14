@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Claude Arena — your Claude Code activity, as a living RTS</title>
-<meta name="description" content="Every project becomes a tribe. Every Claude session, an avatar. Every subagent, a drone. A living StarCraft-meets-aquarium world that draws itself from your Claude Code hooks — runs locally, in your browser." />
+<meta name="description" content="Every project becomes a town that grows from your real Claude Code activity. Sessions are workers, subagents are drones. Towns rise through eras, weather when neglected, and revive when you return — a living RTS world you check in on over time. Runs locally, in your browser." />
 <meta name="theme-color" content="#05070b" />
 
 <!-- Open Graph / iMessage / Slack / Discord preview -->
@@ -57,62 +57,58 @@
       <div class="stat"><span id="stat-drones">0</span><label>drones</label></div>
     </div>
 
-    <div class="skin-toggle" role="group" aria-label="Switch visual skin">
-      <button data-skin="rts"><span>⚔</span> RTS</button>
-      <button data-skin="aquarium"><span>🐠</span> Aquarium</button>
-      <button data-skin="cyber"><span>⚡</span> Cyber</button>
-    </div>
-
     <div class="cta-row">
       <a class="btn primary" href="https://github.com/rmtbb/claude-arena">★ Get it on GitHub</a>
       <a class="btn ghost" href="#how">How it works ↓</a>
     </div>
-    <div class="hero-hint">↑ that's a real game running. drag to pan · scroll to zoom · swap the skin.</div>
+    <div class="hero-hint">↑ that's a real game running. drag to pan · scroll to zoom. each tribe is seeded at a different stage of life.</div>
   </div>
 </section>
 
 <!-- ===================== PITCH ===================== -->
 <section class="band">
   <div class="wrap narrow center">
-    <h2>You spin up four agents across three projects. Then you watch&nbsp;text&nbsp;scroll.</h2>
+    <h2>A town for every project, built from the work you&nbsp;actually&nbsp;did.</h2>
     <p class="big-muted">
-      Claude Arena turns that firehose into something you actually <i>want</i> to glance at. Leave it open on a
-      second monitor and check on it like a fish tank — except the fish are your own sessions grinding through
-      your real work. It's an ambient, curatable record of where your attention actually went.
+      Leave it open on a second monitor. Glance at it across days and weeks. A repo you've poured months into is a
+      walled <b>Citadel</b> with a gilded keep and mossy walls; one you touched last weekend is a thatch
+      <b>Outpost</b>. The busy ones bustle; the neglected ones go quiet and grey — until you return to them and
+      colour floods back. It's an ambient, honest record of where your attention actually went.
     </p>
   </div>
 </section>
 
-<!-- ===================== SKINS ===================== -->
+<!-- ===================== EVOLVE ===================== -->
 <section class="band alt" id="skins">
   <div class="wrap">
     <div class="band-head">
-      <h2>Three worlds. One backend.</h2>
-      <p>Same simulation, same data, three completely different ways to look at it. Swap any time — the toggle's right up there in the hero.</p>
+      <h2>Made to watch evolve.</h2>
+      <p>Everything below is derived from real data — lifetime tool &amp; session counts, first-seen dates, and the clock. No faked activity, no invented numbers.</p>
     </div>
     <div class="cards">
       <article class="card">
-        <img src="/assets/skin-rts.png" alt="RTS skin — top-down bases and harvesting units" loading="lazy" />
+        <img src="/assets/feat-grow.png" alt="A walled town grown from a project's history" loading="lazy" />
         <div class="card-body">
-          <h3><span class="emoji">⚔</span> RTS</h3>
-          <p>Top-down StarCraft energy. Command centers, hex resource nodes, little visored workers with marching legs, and territory that visibly grows as a project levels up.</p>
+          <h3><span class="emoji">🏰</span> It grows through eras</h3>
+          <p>Outpost → Hamlet → Walled Town → Citadel → Capital. Each tier unlocks real structure: palisades become stone walls, the keep gains a gilded roof, towers rise. Cross a threshold while you're away and the town is <i>structurally different</i> when you come back.</p>
         </div>
       </article>
       <article class="card">
-        <img src="/assets/skin-aquarium.png" alt="Aquarium skin — coral reefs and fish" loading="lazy" />
+        <img src="/assets/feat-decay.png" alt="A dormant town greyed and mossy" loading="lazy" />
         <div class="card-body">
-          <h3><span class="emoji">🐠</span> Aquarium</h3>
-          <p>A cozy reef tank. Bases are coral, units are fish, tools are anemones, light shafts drift through the water. The leave-it-open-and-feel-calm mode.</p>
+          <h3><span class="emoji">🍂</span> It weathers &amp; revives</h3>
+          <p>Banners droop, colour drains, and moss creeps over the walls of a project gone quiet — honest neglect, never deletion. The instant a real session fires, life floods back over a couple of seconds and a worker spawns. Age leaves a permanent patina; idleness only veils it.</p>
         </div>
       </article>
       <article class="card">
-        <img src="/assets/skin-cyber.png" alt="Cyber skin — neon grid and glowing nodes" loading="lazy" />
+        <img src="/assets/feat-glance.png" alt="The strategic overview of several towns" loading="lazy" />
         <div class="card-body">
-          <h3><span class="emoji">⚡</span> Cyber</h3>
-          <p>Dark grid, neon everything, glowing motion trails, energy conduits pulsing packets between nodes. Engineered to look unfairly good in a screenshot.</p>
+          <h3><span class="emoji">🗺️</span> It reads at a glance</h3>
+          <p>On the overview, each town is sized by its lifetime work and ringed by a colour that says worked-today vs idle-for-weeks. A Bash-heavy project grows forge chimneys; a Read-heavy one sprouts watchtowers. You learn each town's silhouette like a fingerprint.</p>
         </div>
       </article>
     </div>
+    <p class="center" style="margin-top:26px"><span class="big-muted">And when you open it after time away, a town crier greets you with exactly what changed — <i>“4 days away: +3 sessions, +812 tools, Null Pointers reached Citadel.”</i></span></p>
   </div>
 </section>
 
@@ -172,7 +168,7 @@
                                                      │ tailed + normalized
                                                      ▼
    <span class="c2">server.js</span>  ──static UI + live SSE stream──▶  <span class="c1">your browser</span>
-   (lifetime tribe stats)                   (one sim · three skins · all canvas)</pre>
+   (lifetime tribe stats · eras)            (sim + procedural renderer · all canvas)</pre>
     <div class="privacy">
       <h3>🔒 Private by construction</h3>
       <p>The server binds to <code>127.0.0.1</code> only. The browser is told <b>that</b> something happened — event type, project name, tool name — but never <b>what</b>. Your prompt text and tool output never leave the server. Nothing is sent anywhere; there's no analytics. The arena genuinely doesn't need to know what you're working on to draw a fish.</p>
@@ -213,10 +209,10 @@ open http://localhost:4787</pre>
 </footer>
 
 <script src="/arena/util.js"></script>
+<script src="/arena/art.js"></script>
+<script src="/arena/lore.js"></script>
 <script src="/arena/sim.js"></script>
 <script src="/arena/renderers/rts.js"></script>
-<script src="/arena/renderers/aquarium.js"></script>
-<script src="/arena/renderers/cyber.js"></script>
 <script src="/arena/embed.js"></script>
 </body>
 </html>

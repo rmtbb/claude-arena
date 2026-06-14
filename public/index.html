@@ -43,28 +43,45 @@
   <div id="ticker-wrap"><div id="ticker"></div></div>
 
   <!-- hint -->
-  <div id="hint">drag to pan · scroll to zoom · <b>Tab</b> swaps skins · click a base to curate</div>
+  <div id="hint">drag to pan · scroll to zoom · click a town to inspect &amp; curate</div>
 
-  <!-- curate panel -->
+  <!-- unit hover tooltip -->
+  <div id="unit-tip"></div>
+
+  <!-- "town crier": what changed since you last looked -->
+  <div id="crier"><div id="crier-body"></div><button id="crier-x">✕</button></div>
+
+  <!-- faction / town panel -->
   <aside id="curate">
     <div class="c-head">
       <span id="c-swatch" class="swatch"></span>
-      <span>Curate tribe</span>
+      <div class="c-title">
+        <div id="f-name-disp">Tribe</div>
+        <div id="f-sub" class="c-sub">—</div>
+      </div>
       <button id="c-close" class="x">✕</button>
     </div>
-    <label>Name<input id="c-name" type="text" maxlength="40" /></label>
-    <label>Motto<input id="c-motto" type="text" maxlength="60" placeholder="optional battle cry" /></label>
-    <label>Color<input id="c-hue" type="range" min="0" max="359" /></label>
-    <label>Crest<input id="c-crest" type="range" min="0" max="11" /></label>
-    <div id="c-stats" class="c-stats"></div>
-    <button id="c-save" class="save">Save tribe</button>
+    <div id="f-motto" class="f-motto"></div>
+    <div id="f-stats" class="f-stats"></div>
+    <div class="f-section">
+      <div class="f-h">⚔ Heroes <span id="f-herocount" class="dim"></span></div>
+      <div id="f-heroes" class="f-heroes"></div>
+    </div>
+    <details class="f-customize">
+      <summary>✎ Customize tribe</summary>
+      <label>Name<input id="c-name" type="text" maxlength="40" /></label>
+      <label>Motto<input id="c-motto" type="text" maxlength="60" placeholder="optional battle cry" /></label>
+      <label>Banner color<input id="c-hue" type="range" min="0" max="359" /></label>
+      <label>Crest<input id="c-crest" type="range" min="0" max="11" /></label>
+      <button id="c-save" class="save">Save tribe</button>
+    </details>
   </aside>
 
   <script src="/util.js"></script>
+  <script src="/art.js"></script>
+  <script src="/lore.js"></script>
   <script src="/sim.js"></script>
   <script src="/renderers/rts.js"></script>
-  <script src="/renderers/aquarium.js"></script>
-  <script src="/renderers/cyber.js"></script>
   <script src="/game.js"></script>
 </body>
 </html>

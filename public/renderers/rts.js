@@ -1,195 +1,487 @@
-/* Claude Arena — RTS renderer. Top-down StarCraft-ish bases, harvesters, drones. */
+/*
+ * Claude Arena — RTS renderer (v2).
+ *
+ * A grounded, shaded, 2.5D settlement world. Each faction is a walled town built
+ * from its real history; units are named colonists; lighting follows the local
+ * clock. Everything shades through Arena.art so the look stays coherent.
+ *
+ * Draw order per frame:  sky → ground → (per town) territory/paths/walls →
+ * depth-sorted structures+units → effects → atmosphere.
+ */
 (function () {
   'use strict';
-  const U = Arena.util, TAU = U.TAU;
+  const A = Arena.art, U = Arena.util, TAU = A.TAU;
+  // faction roofs are slate that LEANS toward the tribe hue — identity without garishness
+  const facRoof = (hue) => A.mix(A.ROOFS.slate, A.hslArr(hue, 48, 48), 0.5);
 
-  const STATION_STYLE = {
-    mineral: { hue: 205, label: '◆', name: 'crystals' },
-    gas: { hue: 130, label: '⬢', name: 'geyser' },
-    scout: { hue: 50, label: '▲', name: 'watchtower' },
-    expedition: { hue: 285, label: '⌖', name: 'warp gate' },
-    spawn: { hue: 350, label: '✶', name: 'hatchery' },
-  };
+  // ---- cached wild-ground tile --------------------------------------------
+  let groundTile = null, groundPattern = null;
+  function ensureGround(ctx) {
+    if (groundTile) return;
+    const s = 256;
+    groundTile = document.createElement('canvas'); groundTile.width = groundTile.height = s;
+    const g = groundTile.getContext('2d');
+    const base = A.hslArr(96, 20, 30);
+    g.fillStyle = A.css(base); g.fillRect(0, 0, s, s);
+    // mottled grass via fbm, plus speckle
+    const img = g.getImageData(0, 0, s, s), d = img.data;
+    for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
+      const n = A.fbm(x / 42, y / 42, 4) - 0.5;
+      const i = (y * s + x) * 4;
+      const k = n * 26;
+      d[i] = A.clamp(base[0] + k * 0.6, 0, 255);
+      d[i + 1] = A.clamp(base[1] + k, 0, 255);
+      d[i + 2] = A.clamp(base[2] + k * 0.5, 0, 255);
+      d[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    // a few darker tufts
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * s, y = Math.random() * s;
+      g.fillStyle = A.css(A.shade(base, -0.25), 0.5);
+      g.beginPath(); g.arc(x, y, 1 + Math.random() * 1.6, 0, TAU); g.fill();
+    }
+    groundPattern = ctx.createPattern(groundTile, 'repeat');
+  }
 
+  // ---- background = sky tint ----------------------------------------------
   function background(ctx, env) {
-    const { w, h, cam, time } = env;
-    // dark tactical ground
-    ctx.fillStyle = '#0c1014';
-    ctx.fillRect(0, 0, w, h);
-    // parallax terrain blotches
-    ctx.save();
-    const gz = 64 * cam.zoom;
-    const ox = (-cam.x * cam.zoom) % gz, oy = (-cam.y * cam.zoom) % gz;
-    ctx.strokeStyle = 'rgba(80,120,90,0.06)';
-    ctx.lineWidth = 1;
-    for (let x = ox; x < w; x += gz) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-    for (let y = oy; y < h; y += gz) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-    ctx.restore();
-    // vignette
-    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  }
-
-  function drawBase(ctx, f, env) {
-    const t = env.time;
-    const territory = 150 + f.level * 14;
-    // territory glow
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    U.glow(ctx, f.x, f.y, territory, U.hsl(f.hue, 70, 30, 0.10));
-    ctx.restore();
-    // territory ring
-    ctx.strokeStyle = U.hsl(f.hue, 60, 55, 0.25);
-    ctx.lineWidth = 2; ctx.setLineDash([6, 10]);
-    ctx.beginPath(); ctx.arc(f.x, f.y, territory, 0, TAU); ctx.stroke();
-    ctx.setLineDash([]);
-
-    // outlying buildings grow with level
-    const rings = Math.min(10, f.level);
-    for (let i = 0; i < rings; i++) {
-      const a = i / rings * TAU + 0.4;
-      const bx = f.x + Math.cos(a) * (territory * 0.62);
-      const by = f.y + Math.sin(a) * (territory * 0.62);
-      ctx.fillStyle = U.hsl(f.hue, 30, 22);
-      ctx.strokeStyle = U.hsl(f.hue, 60, 45);
-      ctx.lineWidth = 1.5;
-      U.roundRect(ctx, bx - 9, by - 9, 18, 18, 3); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = U.hsl(f.hue, 70, 55, 0.9);
-      ctx.fillRect(bx - 5, by - 5, 4, 4);
-    }
-
-    // resource stations
-    for (const s of Object.values(f.stations)) {
-      const st = STATION_STYLE[s.type];
+    const L = A.lighting();
+    env._L = L;
+    const g = ctx.createLinearGradient(0, 0, 0, env.h);
+    g.addColorStop(0, A.css(L.top)); g.addColorStop(1, A.css(L.hor));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, env.w, env.h);
+    // night sky: stars + a moon that arcs with the clock
+    const night = L.lampGlow;
+    if (night > 0.05) {
       ctx.save();
+      for (let i = 0; i < 90; i++) {
+        const sx = (A.fbm(i * 1.7, 3.1, 2) * 1.3) % 1 * env.w;
+        const sy = (A.fbm(i * 2.3, 7.7, 2)) * env.h * 0.62;
+        const tw = 0.4 + 0.6 * Math.abs(Math.sin(env.time * 1.5 + i));
+        ctx.fillStyle = A.rgb(220, 230, 250, night * 0.8 * tw * (0.4 + (i % 5) * 0.12));
+        ctx.fillRect(sx, sy, 1.4, 1.4);
+      }
+      // moon: x by clock phase, gentle arc
+      const ph = L.phase;
+      const mx = env.w * (0.12 + ((ph + 0.5) % 1) * 0.76);
+      const my = env.h * (0.30 - Math.sin(((ph + 0.5) % 1) * Math.PI) * 0.16);
       ctx.globalCompositeOperation = 'lighter';
-      U.glow(ctx, s.x, s.y, 26 + s.pulse * 18, U.hsl(st.hue, 80, 50, 0.18 + s.pulse * 0.3));
+      U.glow(ctx, mx, my, 46, A.rgb(210, 225, 255, night * 0.18));
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = A.rgb(235, 240, 252, night * 0.95);
+      ctx.beginPath(); ctx.arc(mx, my, 13, 0, A.TAU); ctx.fill();
+      ctx.fillStyle = A.css(L.top, night * 0.9);
+      ctx.beginPath(); ctx.arc(mx + 5, my - 3, 12, 0, A.TAU); ctx.fill();   // crescent bite
       ctx.restore();
-      ctx.fillStyle = U.hsl(st.hue, 60, 45);
-      ctx.strokeStyle = U.hsl(st.hue, 80, 70);
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; const r = 11; ctx[i ? 'lineTo' : 'moveTo'](s.x + Math.cos(a) * r, s.y + Math.sin(a) * r); }
-      ctx.closePath(); ctx.fill(); ctx.stroke();
     }
+  }
 
-    // command center
-    const pulse = 1 + Math.sin(t * 2) * 0.02 + f.beacon * 0.1;
+  // ---- ground plane (world space) -----------------------------------------
+  function drawGround(ctx, env) {
+    const L = env._L;
+    ensureGround(ctx);
+    // visible world rect
+    const tl = env._s2w(0, 0), br = env._s2w(env.w, env.h);
+    const x = tl.x, y = tl.y, w = br.x - tl.x, h = br.y - tl.y;
+    ctx.fillStyle = groundPattern; ctx.fillRect(x, y, w, h);
+    // ambient wash so ground matches time of day (cool + deep at night)
     ctx.save();
-    ctx.translate(f.x, f.y); ctx.scale(pulse, pulse);
-    // base plate
-    ctx.fillStyle = U.hsl(f.hue, 25, 16);
-    ctx.strokeStyle = U.hsl(f.hue, 65, 50);
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + Math.PI / 8; const r = 34; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r); }
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    // inner core
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    U.glow(ctx, 0, 0, 26, U.hsl(f.hue, 80, 55, 0.5 + f.beacon * 0.4));
+    ctx.fillStyle = A.css(A.mix([10, 13, 30], L.hor, A.clamp(L.ambient, 0, 1) * 0.55), (1 - L.ambient) * 0.82);
+    ctx.fillRect(x, y, w, h);
     ctx.restore();
-    ctx.fillStyle = U.hsl(f.hue, 40, 20);
-    ctx.beginPath(); ctx.arc(0, 0, 19, 0, TAU); ctx.fill();
-    U.crest(ctx, f.crest, 0, 0, 13, U.hsl(f.hue, 85, 72));
-    ctx.restore();
+  }
 
-    // beacon ping
+  // ---- town pieces ---------------------------------------------------------
+  function drawTerritory(ctx, f, env) {
+    const L = env._L, t = f.town; if (!t) return;
+    // cleared earth the town sits on
+    const g = ctx.createRadialGradient(f.x, f.y, t.wallR * 0.3, f.x, f.y, t.territory);
+    g.addColorStop(0, A.css(A.shade(A.hslArr(34, 26, 34), (L.ambient - 1) * 0.5)));
+    g.addColorStop(0.7, A.css(A.shade(A.hslArr(40, 20, 30), (L.ambient - 1) * 0.5)));
+    g.addColorStop(1, A.css(A.hslArr(95, 20, 30), 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, t.territory, t.territory * 0.82, 0, 0, TAU); ctx.fill();
+    // worn paths keep→buildings & →gates
+    ctx.strokeStyle = A.css(A.shade(A.hslArr(32, 24, 26), (L.ambient - 1) * 0.4)); ctx.lineCap = 'round';
+    for (const b of t.buildings) { ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x + b.x, f.y + b.y); ctx.stroke(); }
+    for (const ga of t.gates) { ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x + ga.x, f.y + ga.y); ctx.stroke(); }
+  }
+
+  function drawWall(ctx, f, env) {
+    const L = env._L, t = f.town; if (!t) return;
+    const rx = t.wallR, ry = t.wallR * 0.82;
+    const stone = t.stone;
+    const moss = f.patina || 0;                            // long-lived walls grow mossy
+    const wallCol = A.mix(stone ? [122, 120, 130] : [124, 96, 62], [76, 96, 62], moss * 0.34);
+    const wallH = stone ? 12 : 8, thick = stone ? 7 : 5;
+    const gates = t.gates.map((g) => g.ang);
+    const inGate = (mid) => gates.some((ga) => Math.abs(Math.atan2(Math.sin(mid - ga), Math.cos(mid - ga))) < 0.26);
+    const seg = 0.09;
+    // cast shadow
+    ctx.strokeStyle = `rgba(8,10,16,${L.shadowA * 0.65})`; ctx.lineWidth = thick + 2; ctx.lineCap = 'butt';
+    for (let a = 0; a < TAU; a += seg) { if (inGate(a + seg / 2)) continue; ctx.beginPath(); ctx.ellipse(f.x + L.shadowDir.x * 3, f.y + 3 + L.shadowDir.y * 2, rx, ry, 0, a, a + seg); ctx.stroke(); }
+    // outer face (ground level, darker)
+    ctx.strokeStyle = A.css(A.shade(wallCol, (L.ambient - 1) * 0.5 - 0.1)); ctx.lineWidth = thick + 1;
+    for (let a = 0; a < TAU; a += seg) { if (inGate(a + seg / 2)) continue; ctx.beginPath(); ctx.ellipse(f.x, f.y, rx, ry, 0, a, a + seg); ctx.stroke(); }
+    // lit wall top (lifted)
+    ctx.strokeStyle = A.css(A.shade(wallCol, 0.16 * L.ambient)); ctx.lineWidth = thick;
+    for (let a = 0; a < TAU; a += seg) { if (inGate(a + seg / 2)) continue; ctx.beginPath(); ctx.ellipse(f.x, f.y - wallH, rx, ry, 0, a, a + seg); ctx.stroke(); }
+    // crenellations along the top
+    ctx.fillStyle = A.css(A.shade(wallCol, 0.24 * L.ambient));
+    for (let a = 0; a < TAU; a += 0.21) { if (inGate(a)) continue; const mx = f.x + Math.cos(a) * rx, my = f.y - wallH + Math.sin(a) * ry; ctx.fillRect(mx - 1.5, my - 3, 3, 3.5); }
+    // interval towers (stone tier)
+    if (stone) {
+      for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + 0.2; if (inGate(a)) continue; const tx = f.x + Math.cos(a) * rx, ty = f.y + Math.sin(a) * ry; const tp = A.cyl(ctx, tx, ty, 4.5, wallH + 7, wallCol, L, { cap: A.WALLS.darkstone }); A.cone(ctx, tx, tp[1], 5.5, 6, facRoof(f.hue), L); }
+    }
+  }
+
+  const HOUSE_ROOFS = ['terracotta', 'thatch', 'slate', 'tile'];
+  function drawHouse(ctx, f, h, env) {
+    const L = env._L;
+    const roof = A.ROOFS[HOUSE_ROOFS[(h.seed | 0) % HOUSE_ROOFS.length]];
+    const wall = (h.seed & 1) ? A.WALLS.plaster : A.WALLS.timber;
+    A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h, h.h * 0.7, wall, roof, L, { windows: true });
+  }
+
+  function drawBuilding(ctx, f, b, env) {
+    const L = env._L, x = f.x + b.x, y = f.y + b.y;
+    const active = (f.stations[b.station] && f.stations[b.station].pulse > 0);
+    switch (b.type) {
+      case 'forge': {
+        // industrial: dark stone, flat roof, glowing furnace; chimneys multiply
+        // with how Bash-heavy this project is (skyline fingerprint).
+        A.box(ctx, x, y, b.w, b.d, b.h, A.WALLS.darkstone, L, { roof: A.ROOFS.dark });
+        const chimneys = 1 + Math.round((b.emph || 0) * 3);
+        for (let ci = 0; ci < chimneys; ci++) {
+          const cxo = (ci - (chimneys - 1) / 2) * 10;
+          A.box(ctx, x + cxo, y - b.d * 0.18, 8, 8, b.h + 14 + (ci % 2) * 4, [66, 58, 56], L);
+        }
+        // furnace mouth on the south face — modest by day, glowing at night
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const fl = 0.4 + (active ? 0.4 : 0) + Math.sin(env.time * 6) * 0.06;
+        U.glow(ctx, x, y + b.d * 0.32, 10, A.rgb(255, 120, 30, (0.12 + (active ? 0.25 : 0)) * (0.45 + L.lampGlow)));
+        ctx.restore();
+        ctx.fillStyle = A.rgb(255, 150, 60, (0.4 + 0.4 * L.lampGlow) * fl);
+        ctx.fillRect(x - 3.5, y + b.d * 0.32 - 4, 7, 4);
+        break;
+      }
+      case 'workshop': {
+        A.gableBox(ctx, x, y, b.w, b.d, b.h, b.h * 0.8, A.WALLS.timber, A.ROOFS.thatch, L, { windows: true });
+        // log pile beside it
+        for (let i = 0; i < 3; i++) { ctx.fillStyle = A.css(A.shade([120, 92, 60], -0.1 - i * 0.05)); const lx = x - b.w * 0.5 - 4, ly = y + b.d * 0.2 + i * 3; ctx.beginPath(); ctx.ellipse(lx, ly, 5, 2.4, 0, 0, TAU); ctx.fill(); }
+        break;
+      }
+      case 'tower': {
+        const top = A.cyl(ctx, x, y, b.w * 0.5, b.h, A.WALLS.stone, L, { cap: A.WALLS.darkstone });
+        A.cone(ctx, x, top[1], b.w * 0.62, 16, facRoof(f.hue), L);
+        if (active || L.lampGlow > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, top[0], top[1], 9, A.rgb(255, 240, 190, 0.55 * (0.4 + L.lampGlow))); ctx.restore(); }
+        break;
+      }
+      case 'wargate': {
+        // gatehouse straddling the wall: central passage + two flanking towers
+        A.box(ctx, x, y, b.w * 0.5, b.d, b.h * 0.72, A.WALLS.stone, L, { roof: A.WALLS.darkstone });
+        const lt = A.cyl(ctx, x - b.w * 0.4, y, 5, b.h, A.WALLS.stone, L, { cap: A.WALLS.darkstone });
+        const rt = A.cyl(ctx, x + b.w * 0.4, y, 5, b.h, A.WALLS.stone, L, { cap: A.WALLS.darkstone });
+        A.cone(ctx, x - b.w * 0.4, lt[1], 6, 7, facRoof(f.hue), L);
+        A.cone(ctx, x + b.w * 0.4, rt[1], 6, 7, facRoof(f.hue), L);
+        // dark arch passage
+        ctx.fillStyle = A.css([30, 28, 36]);
+        ctx.beginPath(); ctx.ellipse(x, y - b.h * 0.18, b.w * 0.16, b.h * 0.34, 0, 0, TAU); ctx.fill();
+        if (active) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, x, y - b.h * 0.18, 8, A.hslArr(f.hue, 65, 56), A.rgb(150, 180, 235, 0.35)); ctx.restore(); }
+        A.banner(ctx, x - b.w * 0.4, lt[1] + 2, 7, f.hue, env.time, L, f._vit);
+        break;
+      }
+      case 'barracks': {
+        A.gableBox(ctx, x, y, b.w, b.d, b.h, b.h * 0.7, A.WALLS.stone, A.ROOFS.slate, L, { windows: true });
+        A.banner(ctx, x, y - b.d * 0.45, 9, f.hue, env.time, L, f._vit);
+        break;
+      }
+    }
+  }
+
+  function merlons(ctx, p0, p1, n, up, color) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < n; i++) { const t = (i + 0.5) / n; const mx = A.lerp(p0[0], p1[0], t), my = A.lerp(p0[1], p1[1], t); ctx.fillRect(mx - 2, my - up, 4, up); }
+  }
+  function drawKeep(ctx, f, env) {
+    const L = env._L, x = f.x, y = f.y;
+    const vit = f._vit == null ? 1 : f._vit;
+    const era = f.era || 0;
+    const sizeBoost = 1 + Math.min(0.5, era * 0.1);
+    const hw = 24 * sizeBoost, hd = 19 * sizeBoost, h = 24;
+    // stone castle block
+    A.box(ctx, x, y, hw * 2, hd * 2, h, A.WALLS.stone, L, { roof: A.WALLS.darkstone });
+    // battlements along the visible (south + east) top edges
+    const Dr = A.lift(x - hw, y + hd, h), Cr = A.lift(x + hw, y + hd, h), Br = A.lift(x + hw, y - hd, h);
+    merlons(ctx, Dr, Cr, 5, 5, A.css(A.shade(A.WALLS.stone, 0.18 * L.ambient)));
+    merlons(ctx, Cr, Br, 4, 5, A.css(A.shade(A.WALLS.stone, -0.06 * L.ambient)));
+    // glowing gate / heart on the south face
+    ctx.fillStyle = A.css([30, 28, 34]);
+    ctx.fillRect(x - 5, y + hd - 9, 10, 9);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const pulse = 0.85 + Math.sin(env.time * 2) * 0.15;
+    // the heart dims when the town goes quiet, warms back as it revives
+    U.glow(ctx, x, y + hd - 4, 11 + f.beacon * 14, A.rgb(255, 196, 120, (0.1 + 0.4 * L.lampGlow + f.beacon * 0.3) * pulse * (0.28 + 0.72 * vit)));
+    ctx.restore();
+    // central keep tower — gilded roof once lifetime tools cross the tier
+    const ttop = A.cyl(ctx, x, y - hd * 0.2, 12 * sizeBoost, h + 26, A.WALLS.stone, L, { cap: A.WALLS.darkstone });
+    const keepRoof = f.gilded ? A.mix([214, 176, 92], A.hslArr(f.hue, 50, 50), 0.22) : A.mix(facRoof(f.hue), A.hslArr(f.hue, 55, 48), 0.4);
+    A.cone(ctx, x, ttop[1], 14 * sizeBoost, 18, keepRoof, L);
+    A.banner(ctx, x + 9, ttop[1] + 3, 15, f.hue, env.time, L, vit);
+    const ct = A.lift(x, y - hd * 0.2, h + 26);
+    ctx.save(); ctx.translate(ct[0], ct[1] - 3); U.crest(ctx, f.crest, 0, 0, 6, A.css(A.hslArr(f.hue, 80, 82))); ctx.restore();
+    // Capital era: corner turrets
+    if (era >= 4) {
+      for (const [cx, cy] of [[x - hw, y - hd], [x + hw, y - hd], [x - hw, y + hd]]) {
+        const tt = A.cyl(ctx, cx, cy, 5, h + 8, A.WALLS.stone, L, {}); A.cone(ctx, cx, tt[1], 6, 8, facRoof(f.hue), L);
+      }
+    }
     if (f.beacon > 0) {
-      const pr = (1 - f.beacon / 1.2) * 70;
-      ctx.strokeStyle = U.hsl(f.hue, 90, 65, f.beacon / 1.2);
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(f.x, f.y, 34 + pr, 0, TAU); ctx.stroke();
+      const pr = (1 - f.beacon / 1.2) * 60;
+      ctx.strokeStyle = A.css(A.hslArr(f.hue, 85, 65), f.beacon / 1.2); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(x, y, 30 + pr, (30 + pr) * 0.82, 0, 0, TAU); ctx.stroke();
     }
-
-    // banner
-    label(ctx, f, env);
   }
 
-  function label(ctx, f, env) {
-    const y = f.y + 200 + f.level * 14 - 44;
-    ctx.font = '700 15px ui-sans-serif,system-ui,sans-serif';
-    const tw = ctx.measureText(f.name).width;
-    ctx.fillStyle = 'rgba(8,12,16,0.7)';
-    U.roundRect(ctx, f.x - tw / 2 - 12, y - 14, tw + 24, 24, 6); ctx.fill();
-    ctx.fillStyle = U.hsl(f.hue, 70, 30, 1);
-    ctx.fillRect(f.x - tw / 2 - 12, y - 14, 4, 24);
-    ctx.fillStyle = U.hsl(f.hue, 80, 80);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(f.name, f.x, y - 1);
-    ctx.font = '600 10px ui-monospace,monospace';
-    ctx.fillStyle = U.hsl(f.hue, 40, 60, 0.8);
-    ctx.fillText(`LVL ${f.level}  ·  ⚒ ${f.resources}`, f.x, y + 13);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  function drawProp(ctx, f, p, env) {
+    const L = env._L;
+    if (p.kind === 'tree') A.tree(ctx, f.x + p.x, f.y + p.y, p.s, L);
+    else A.rock(ctx, f.x + p.x, f.y + p.y, p.s, L);
   }
 
-  function drawUnit(ctx, u, f, env) {
-    const r = (u.kind === 'drone' ? 5 : 7) * u.scale;
-    const bob = Math.sin(u.wob) * (u.kind === 'drone' ? 2 : 1.2);
-    const x = u.x, y = u.y + bob;
-    const moving = Math.hypot(u.vx, u.vy) > 8;
-    const ang = Math.atan2(u.vy, u.vx);
+  // ---- units ---------------------------------------------------------------
+  // units keep a minimum on-screen size so they never vanish into the town
+  function unitSize(base, env) { return Math.max(base, base * 1.5 / Math.max(0.55, env.cam.zoom)); }
 
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.ellipse(u.x, u.y + r + 2, r * 0.9, r * 0.4, 0, 0, TAU); ctx.fill();
+  function drawWorker(ctx, u, f, env) {
+    const L = env._L;
+    const vet = u.veteran;
+    const s = unitSize(vet ? 5.4 : 4.7, env) * u.scale;
+    const walking = Math.hypot(u.vx, u.vy) > 8;
+    const step = walking ? Math.sin(u.wob * 1.6) : 0;
+    const bob = Math.abs(step) * 1.4;
+    const x = u.x, y = u.y - bob;
+    // grounded contact shadow (one global light azimuth)
+    ctx.fillStyle = `rgba(6,8,12,${Math.min(0.55, L.shadowA + 0.12)})`;
+    ctx.beginPath(); ctx.ellipse(u.x + L.shadowDir.x * 2, u.y + 1.5, s * 1.15, s * 0.45, 0, 0, TAU); ctx.fill();
 
-    // carry trail
+    const aF = Math.max(0.5, L.ambient);
+    const cloak = u.state === 'stumble' ? A.hslArr(0, 65, 46) : A.hslArr(f.hue, 55, 46 * aF);
+    const cloakLit = A.shade(cloak, 0.18), cloakDark = A.shade(cloak, -0.3);
+    const skin = A.shade([232, 205, 172], (aF - 1) * 0.5);
+    // legs (little stepping marks)
+    ctx.strokeStyle = A.css(cloakDark); ctx.lineWidth = Math.max(1.2, s * 0.32); ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.4, y + s * 0.7); ctx.lineTo(x - s * 0.4 + step * s * 0.5, y + s * 1.1);
+    ctx.moveTo(x + s * 0.4, y + s * 0.7); ctx.lineTo(x + s * 0.4 - step * s * 0.5, y + s * 1.1); ctx.stroke();
+    // body (cloak) with a lit/shadow split
+    ctx.fillStyle = A.css(cloakDark); ctx.beginPath(); ctx.ellipse(x, y, s, s * 1.1, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = A.css(cloakLit); ctx.beginPath(); ctx.ellipse(x - s * 0.25, y - s * 0.15, s * 0.62, s * 0.85, 0, 0, TAU); ctx.fill();
+    // head + faction cap
+    ctx.fillStyle = A.css(skin); ctx.beginPath(); ctx.arc(x + u.facing * s * 0.18, y - s * 0.85, s * 0.52, 0, TAU); ctx.fill();
+    ctx.fillStyle = A.css(A.hslArr(f.hue, 65, 52 * aF)); ctx.beginPath();
+    ctx.arc(x + u.facing * s * 0.18, y - s * 1.05, s * 0.5, Math.PI, TAU); ctx.fill();
+    // veteran: glow + plume
+    if (vet) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      U.glow(ctx, x, y, s * 2.2, A.hslArr(f.hue, 80, 60), A.rgb(255, 232, 165, 0.16 * (0.5 + L.lampGlow)));
+      ctx.restore();
+      ctx.fillStyle = A.css(A.hslArr((f.hue + 45) % 360, 85, 66));
+      ctx.beginPath(); ctx.moveTo(x, y - s * 1.4); ctx.lineTo(x - s * 0.4, y - s * 2.3); ctx.lineTo(x + s * 0.4, y - s * 2.1); ctx.closePath(); ctx.fill();
+    }
+    // carry / tool in hand
     if (u.carry) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      U.glow(ctx, x, y - r - 3, 7, U.hsl(u.carry.hue, 90, 60, 0.7));
+      U.glow(ctx, x + u.facing * s, y - s * 0.2, 6, A.css(A.hslArr(Arena.STATION_HUE[u.carry.type] || 40, 85, 60), 0.85));
       ctx.restore();
+      ctx.fillStyle = A.css(A.hslArr(Arena.STATION_HUE[u.carry.type] || 40, 70, 55));
+      ctx.fillRect(x + u.facing * s * 0.8, y - s * 0.5, s * 0.9, s * 0.9);
+    } else if (u.state === 'toResource' || u.state === 'gathering') {
+      ctx.strokeStyle = A.css([110, 96, 80]); ctx.lineWidth = Math.max(1.2, s * 0.22);
+      const sw = u.state === 'gathering' ? Math.sin(env.time * 9) * 0.5 : 0;
+      ctx.beginPath(); ctx.moveTo(x + u.facing * s * 0.7, y - s * 0.1); ctx.lineTo(x + u.facing * (s * 1.9), y - s * (1.1 + sw)); ctx.stroke();
     }
-
-    ctx.save();
-    ctx.translate(x, y); ctx.rotate(moving ? ang + Math.PI / 2 : 0);
-    const light = u.state === 'stumble' ? 40 : 55;
-    const sat = u.alert > 0.3 ? 95 : 70;
-    if (u.kind === 'drone') {
-      // diamond drone with thruster
-      ctx.fillStyle = U.hsl(f.hue, sat, light);
-      ctx.strokeStyle = U.hsl(f.hue, 80, 80); ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0); ctx.closePath();
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = U.hsl(f.hue, 90, 85); ctx.fillRect(-1, -1.5, 2, 3);
-    } else {
-      // worker: rounded body + little legs
-      ctx.fillStyle = u.state === 'stumble' ? U.hsl(0, 70, 45) : U.hsl(f.hue, sat, light);
-      ctx.strokeStyle = U.hsl(f.hue, 80, 82); ctx.lineWidth = 1.4;
-      U.roundRect(ctx, -r, -r, r * 2, r * 2, r * 0.6); ctx.fill(); ctx.stroke();
-      // visor
-      ctx.fillStyle = U.hsl(f.hue, 90, 88, 0.9);
-      ctx.fillRect(-r * 0.5, -r * 0.6, r, r * 0.5);
-      // legs
-      const legp = Math.sin(u.wob) * r * 0.5;
-      ctx.strokeStyle = U.hsl(f.hue, 60, 40); ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(-r * 0.4, r); ctx.lineTo(-r * 0.4, r + 3 + legp); ctx.moveTo(r * 0.4, r); ctx.lineTo(r * 0.4, r + 3 - legp); ctx.stroke();
-    }
-    ctx.restore();
-
-    if (u.state === 'rest') {
-      ctx.fillStyle = U.hsl(f.hue, 60, 80, 0.8);
-      ctx.font = '10px sans-serif';
-      ctx.fillText('z', x + r, y - r - 2 + Math.sin(env.time * 3) * 2);
-    }
-    if (u.alert > 0.3) {
-      ctx.fillStyle = U.hsl(48, 100, 60, u.alert);
-      ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('!', x, y - r - 5); ctx.textAlign = 'left';
+    if (u.alert > 0.3) { ctx.fillStyle = A.css(A.hslArr(48, 100, 62), u.alert); ctx.font = `bold ${Math.round(s * 2.4)}px sans-serif`; ctx.textAlign = 'center'; ctx.fillText('!', x, y - s * 2.6); ctx.textAlign = 'left'; }
+    if (u.state === 'rest') { ctx.fillStyle = A.css(A.hslArr(f.hue, 50, 82), 0.85); ctx.font = `${Math.round(s * 2)}px sans-serif`; ctx.fillText('z', x + s, y - s * 2 + Math.sin(env.time * 3) * 2); }
+    // name tag: veterans always (when close-ish), or the hovered unit
+    if ((vet && env.cam.zoom > 0.85) || env.hoverId === u.id) {
+      const nm = (u.identity.title + ' ' + u.identity.name);
+      ctx.font = '600 10px ui-sans-serif,system-ui'; const tw = ctx.measureText(nm).width;
+      ctx.fillStyle = 'rgba(8,11,16,0.62)'; U.roundRect(ctx, x - tw / 2 - 4, y - s * 3.2 - 9, tw + 8, 13, 4); ctx.fill();
+      ctx.fillStyle = A.rgb(235, 240, 248, 0.95); ctx.textAlign = 'center'; ctx.fillText(nm, x, y - s * 3.2); ctx.textAlign = 'left';
     }
   }
 
+  function drawDrone(ctx, u, f, env) {
+    const L = env._L;
+    const s = unitSize(4, env) * u.scale;
+    const alt = 12 + Math.sin(u.wob * 1.3) * 2;       // flight altitude
+    const x = u.x, y = u.y - alt;
+    // tether to parent worker (shows the subagent hierarchy)
+    const p = u.parent && env._sim.units.get(u.parent);
+    if (p && !p.dead) {
+      ctx.strokeStyle = A.css(A.hslArr(f.hue, 60, 60), 0.22); ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(p.x, p.y - 4); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // ground shadow offset by altitude → reads as flying
+    ctx.fillStyle = `rgba(6,8,12,${L.shadowA * 0.6})`;
+    ctx.beginPath(); ctx.ellipse(u.x + 2, u.y + 2, s * 0.9, s * 0.36, 0, 0, TAU); ctx.fill();
+    // rotor blur
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = A.rgb(200, 225, 255, 0.12); ctx.beginPath(); ctx.ellipse(x, y - s * 0.4, s * 1.6, s * 0.5, 0, 0, TAU); ctx.fill();
+    U.glow(ctx, x, y, s * 2.2, A.hslArr(f.hue, 80, 62), A.rgb(190, 225, 255, 0.5));
+    ctx.restore();
+    // body
+    ctx.fillStyle = A.css(A.hslArr(f.hue, 58, 60 * Math.max(0.6, L.ambient)));
+    ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = A.css(A.hslArr(f.hue, 95, 86)); ctx.fillRect(x - s * 0.25, y - s * 0.25, s * 0.5, s * 0.5);
+  }
+
+  // Chronicle Stone: an obelisk near the keep that grows a band per milestone.
+  function drawChronicle(ctx, f, env) {
+    const L = env._L, c = f.town.chronicle; if (!c || !c.bands) return;
+    const x = f.x + c.x, y = f.y + c.y;
+    const bands = Math.min(12, c.bands);
+    const h = 12 + bands * 3.5;
+    A.box(ctx, x, y, 7, 6, h, A.WALLS.stone, L, { roof: A.WALLS.darkstone });
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < bands; i++) { const by = A.lift(x, y, 5 + i * 3); ctx.fillStyle = A.css(A.hslArr(f.hue, 70, 62), 0.55); ctx.fillRect(by[0] - 3, by[1], 6, 1.3); }
+    const tp = A.lift(x, y, h); U.glow(ctx, tp[0], tp[1], 5, A.css(A.hslArr(f.hue, 80, 66), 0.5 * (f._vit || 1)));
+    ctx.restore();
+  }
+
+  // veil dormant towns: a desaturating grey-green wash that lifts as vitality returns
+  function dormancyVeil(ctx, f) {
+    const t = f.town, vit = f._vit; if (vit > 0.93) return;
+    const d = 1 - vit;
+    ctx.fillStyle = A.rgb(74, 80, 66, d * 0.36);
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, t.territory * 0.94, t.territory * 0.8, 0, 0, TAU); ctx.fill();
+  }
+
+  // ---- main ----------------------------------------------------------------
   function drawWorld(ctx, sim, env) {
-    for (const f of sim.factions.values()) drawBase(ctx, f, env);
-    // drones under workers for depth
-    const arr = Array.from(sim.units.values()).sort((a, b) => a.y - b.y);
-    for (const u of arr) {
-      const f = sim.factions.get(u.factionKey); if (!f) continue;
-      ctx.globalAlpha = u.dead ? Math.max(0, 1 - u.deadT / 0.6) : 1;
-      drawUnit(ctx, u, f, env);
+    const L = env._L || (env._L = A.lighting());
+    env._sim = sim;
+    drawGround(ctx, env);
+
+    const facs = Array.from(sim.factions.values()).sort((a, b) => a.y - b.y);
+    const far = env.cam.zoom < 0.42;
+
+    // per-frame: ease each town's displayed vitality toward its true value so a
+    // revived town visibly "floods" back to life over ~1.5s.
+    for (const f of facs) {
+      const target = Arena.lore.vitality(f);
+      if (f._vit == null) f._vit = target;
+      f._vit += (target - f._vit) * 0.05;
+    }
+
+    // pass 1: ground-level (territory, paths, walls)
+    for (const f of facs) drawTerritory(ctx, f, env);
+    for (const f of facs) { if (!far && f.town && f.town.hasWall) drawWall(ctx, f, env); }
+
+    // pass 2: per town, depth-sort structures + units
+    for (const f of facs) {
+      const t = f.town; if (!t) continue;
+      if (far) {
+        drawKeep(ctx, f, env);
+        ctx.fillStyle = A.css(A.hslArr(f.hue, 35, 42), 0.45);
+        for (const h of t.houses) ctx.fillRect(f.x + h.x - 1, f.y + h.y - 1, 2, 2);
+        dormancyVeil(ctx, f);
+        continue;
+      }
+      const draw = [];
+      for (const p of t.props) draw.push({ y: f.y + p.y, fn: () => drawProp(ctx, f, p, env) });
+      for (const h of t.houses) draw.push({ y: f.y + h.y, fn: () => drawHouse(ctx, f, h, env) });
+      for (const b of t.buildings) draw.push({ y: f.y + b.y, fn: () => drawBuilding(ctx, f, b, env) });
+      draw.push({ y: f.y - 1, fn: () => drawKeep(ctx, f, env) });
+      draw.push({ y: f.y + t.chronicle.y, fn: () => drawChronicle(ctx, f, env) });
+      for (const u of sim.units.values()) {
+        if (u.factionKey !== f.key || u.dead) continue;
+        const yy = u.kind === 'drone' ? u.y - 10 : u.y;
+        draw.push({ y: yy, fn: () => (u.kind === 'drone' ? drawDrone(ctx, u, f, env) : drawWorker(ctx, u, f, env)) });
+      }
+      draw.sort((a, b) => a.y - b.y);
+      for (const d of draw) d.fn();
+      dormancyVeil(ctx, f);
+    }
+
+    // dead units fade
+    for (const u of sim.units.values()) {
+      if (!u.dead) continue;
+      ctx.globalAlpha = Math.max(0, 1 - u.deadT / 0.6);
+      const f = sim.factions.get(u.factionKey); if (f) (u.kind === 'drone' ? drawDrone : drawWorker)(ctx, u, f, env);
       ctx.globalAlpha = 1;
     }
+
+    // chimney/forge smoke — only from living towns; stronger on active harvest
+    ctx.save();
+    for (const f of facs) {
+      if (far || !f.town || (f._vit || 0) < 0.7) continue;
+      const fb = f.town.buildings.find((b) => b.type === 'forge');
+      const st = f.stations && f.stations.gas;
+      if (!fb) continue;
+      const puffs = st && st.pulse > 0.2 ? 3 : 1;
+      const cx = f.x + fb.x + fb.w * 0.3, cy = f.y + fb.y - fb.d * 0.18;
+      const top = A.lift(cx, cy, fb.h + 16);
+      for (let i = 0; i < puffs; i++) { const life = ((env.time * 0.4 + i * 0.4) % 1); A.smoke(ctx, top[0] + Math.sin(env.time + i) * 3, top[1], life, L); }
+    }
+    ctx.restore();
+
+    // "grew while you were away" highlight pulse (set by the return beat)
+    const nowMs = Date.now();
+    for (const f of facs) {
+      if (!f._grewAt) continue;
+      const age = (nowMs - f._grewAt) / 1000; if (age > 20) continue;
+      const t = f.town; if (!t) continue;
+      const k = (env.time % 1.6) / 1.6;
+      const rr = t.territory * (0.45 + k * 0.6);
+      ctx.strokeStyle = A.rgb(255, 222, 140, (1 - k) * 0.55 * (1 - age / 20)); ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.8, 0, 0, TAU); ctx.stroke();
+    }
+
+    if (!far) drawLabels(ctx, facs, env);
+    else drawOverviewLabels(ctx, facs, env);
+  }
+
+  function drawLabels(ctx, facs, env) {
+    for (const f of facs) {
+      const t = f.town; if (!t) continue;
+      const y = f.y + t.territory * 0.82 + 16;
+      ctx.font = '700 14px ui-sans-serif,system-ui,sans-serif';
+      const tw = ctx.measureText(f.name).width;
+      ctx.fillStyle = 'rgba(8,12,16,0.62)';
+      U.roundRect(ctx, f.x - tw / 2 - 12, y - 13, tw + 24, 24, 6); ctx.fill();
+      // live/idle state pip
+      ctx.fillStyle = A.css(stateColor(f)); ctx.beginPath(); ctx.arc(f.x - tw / 2 - 6, y - 1, 3, 0, TAU); ctx.fill();
+      ctx.fillStyle = A.css(A.hslArr(f.hue, 60, 82)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.name, f.x, y - 1);
+      ctx.font = '600 9px ui-monospace,monospace'; ctx.fillStyle = A.rgb(165, 182, 202, 0.85);
+      ctx.fillText(`${f.eraName || 'Outpost'}  ·  ⌂ ${t.houses.length}  ·  ${Arena.lore.idleLabel(f)}`, f.x, y + 12);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // overview: every town gets a name + state ring so the strategic map is legible
+  function drawOverviewLabels(ctx, facs, env) {
+    for (const f of facs) {
+      const t = f.town; if (!t) continue;
+      const r = t.territory * 0.5;
+      // state ring under the disc
+      ctx.strokeStyle = A.css(stateColor(f), 0.8); ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y + 4, r, r * 0.5, 0, 0, TAU); ctx.stroke();
+      const y = f.y + r * 0.5 + 18;
+      ctx.font = '700 13px ui-sans-serif,system-ui,sans-serif';
+      const tw = ctx.measureText(f.name).width;
+      ctx.fillStyle = 'rgba(8,12,16,0.6)'; U.roundRect(ctx, f.x - tw / 2 - 8, y - 11, tw + 16, 19, 5); ctx.fill();
+      ctx.fillStyle = A.css(A.hslArr(f.hue, 60, 82)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.name, f.x, y - 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+  function stateColor(f) {
+    const v = f._vit == null ? Arena.lore.vitality(f) : f._vit;
+    // warm green = worked recently, fading to cold grey-blue when long idle
+    return A.mix([90, 110, 130], [110, 220, 130], v);
   }
 
   Arena.renderers = Arena.renderers || {};

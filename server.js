@@ -141,6 +141,8 @@ function ensureFaction(key, name) {
       totalSubagents: 0,
       totalSessions: 0,
       resources: 0,              // lifetime "harvest"
+      preCompacts: 0,            // memory storms survived (milestone)
+      toolCounts: {},            // per-tool lifetime counts → "skyline fingerprint"
       sessionsSeen: new Set(),
     };
     factions.set(key, f);
@@ -164,9 +166,11 @@ function applyToAggregate(n) {
 
   if (n.event === 'PreToolUse') {
     f.totalTools++;
+    if (n.tool) f.toolCounts[n.tool] = (f.toolCounts[n.tool] || 0) + 1;
     if (n.tool === 'Task' || n.tool === 'Agent' || n.tool === 'Workflow') f.totalSubagents++;
   }
   if (n.event === 'PostToolUse' && !n.isError) f.resources++;
+  if (n.event === 'PreCompact') f.preCompacts++;
 
   // Faction "level" — visible grandeur grows sub-linearly so it never explodes.
   f.level = 1 + Math.floor(Math.sqrt(f.totalTools + f.totalSubagents * 3) / 3);
@@ -209,6 +213,8 @@ function factionView(f) {
     totalSubagents: f.totalSubagents,
     totalSessions: f.totalSessions,
     resources: f.resources,
+    preCompacts: f.preCompacts || 0,
+    toolCounts: f.toolCounts || {},
     liveSessions,
   };
 }

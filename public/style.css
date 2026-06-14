@@ -118,8 +118,58 @@ body:active { cursor: grabbing; }
 }
 .save:hover { filter: brightness(1.1); }
 
+/* town crier — "since you last looked" */
+#crier {
+  position: fixed; top: 64px; left: 16px; max-width: 320px; z-index: 9;
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 12px; padding: 12px 34px 12px 14px; backdrop-filter: blur(10px);
+  opacity: 0; transform: translateY(-8px); pointer-events: none; transition: all 0.3s;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+}
+#crier.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+#crier-body { font-size: 12.5px; line-height: 1.7; }
+#crier-body div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#crier-body b { color: var(--fg); font-weight: 700; }
+.crier-h { display: inline-block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--accent); font-weight: 800; margin-bottom: 3px; }
+#crier-x { position: absolute; top: 8px; right: 8px; background: transparent; border: 0;
+  color: var(--muted); cursor: pointer; font-size: 13px; }
+#crier-x:hover { color: var(--fg); }
+
+/* panel: title, era, character, chronicle */
+.c-title { display: flex; flex-direction: column; line-height: 1.25; }
+#f-name-disp { font-weight: 800; font-size: 15px; }
+.c-sub { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, monospace; margin-top: 2px; }
+.f-motto { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-style: italic; }
+.f-motto .char { color: #cfe0f0; }
+.erabar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+.erabar-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+.erabar-lbl { font-size: 10px; color: var(--muted); margin-bottom: 12px; letter-spacing: 0.4px; }
+.f-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 14px; }
+.chip { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 6px 4px; text-align: center; }
+.chip b { display: block; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.chip span { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.f-section { margin-bottom: 6px; }
+.f-h { font-size: 12px; font-weight: 700; color: var(--fg); margin-bottom: 8px; }
+.f-h .dim, .dim { color: var(--dim); font-weight: 400; }
+.f-heroes { display: flex; flex-direction: column; gap: 4px; max-height: 230px; overflow-y: auto; }
+.hero { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.hdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.hn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hn .vet { color: var(--amber); }
+.ha { color: var(--dim); font-size: 10.5px; font-family: ui-monospace, monospace; }
+.chron { display: flex; flex-wrap: wrap; gap: 4px; }
+.chron .band { font-size: 10px; background: rgba(255,209,102,0.12); color: #ffe0a0;
+  border: 1px solid rgba(255,209,102,0.22); border-radius: 5px; padding: 2px 6px; }
+.f-customize { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.f-customize summary { font-size: 12px; color: var(--muted); cursor: pointer; list-style: none; padding: 4px 0; }
+.f-customize summary:hover { color: var(--fg); }
+.f-customize label { margin-top: 8px; }
+#unit-tip { position: fixed; z-index: 12; pointer-events: none; display: none; }
+
 @media (max-width: 640px) {
   .subtitle, #hint { display: none; }
   #ticker-wrap { max-width: 90vw; }
   #hud { gap: 5px; } .stat { padding: 6px 10px; min-width: 56px; }
+  #crier { max-width: 240px; }
 }

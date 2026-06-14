@@ -6,9 +6,8 @@
   const sim = new Arena.Sim();
 
   // ---- renderer registry ---------------------------------------------------
-  const ORDER = ['rts', 'aquarium', 'cyber'];
-  let current = localStorage.getItem('arena.renderer') || 'rts';
-  if (!Arena.renderers[current]) current = 'rts';
+  const ORDER = ['rts']; // RTS-only build; aquarium/cyber return later
+  let current = 'rts';
 
   // ---- canvas / DPR --------------------------------------------------------
   const canvas = document.getElementById('stage');
@@ -39,6 +38,10 @@
   function screenToWorld(sx, sy) {
     return { x: (sx - W / 2) / cam.zoom + cam.x, y: (sy - H / 2) / cam.zoom + cam.y };
   }
+
+  function focusFaction(f, z) { autoFrame = false; cam.tx = f.x; cam.ty = f.y - 30; cam.tzoom = z || 1.6; }
+  // exposed for tooling / debugging (also powers click-to-focus)
+  window.ArenaApp = { get cam() { return cam; }, sim, art: Arena.art, focusFaction };
 
   // ---- input ---------------------------------------------------------------
   let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0, moved = 0;
@@ -80,9 +83,10 @@
     let best = null, bd = 1e9;
     for (const f of sim.factions.values()) {
       const d = Math.hypot(f.x - w.x, f.y - w.y);
-      if (d < 60 && d < bd) { bd = d; best = f; }
+      const r = f.town ? f.town.territory : 90;
+      if (d < r && d < bd) { bd = d; best = f; }
     }
-    if (best) openCurate(best);
+    if (best) { focusFaction(best, Math.max(cam.zoom, 1.35)); openCurate(best); }
   }
 
   // ---- live data -----------------------------------------------------------
@@ -102,10 +106,51 @@
         const f = sim.factions.get(n.projectKey);
         if (f && n.event === 'PreToolUse') sim.log(`· ${f.name} — ${n.tool || 'works'}`, f.hue);
       });
+      computeReturnBeat(s.factions || []);
       fitView(true);
       updateHud();
     } catch (e) { /* server may not be ready */ }
   }
+
+  // ---- "since you last looked" return beat ---------------------------------
+  function fmtAway(ms) {
+    const s = ms / 1000;
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min';
+    if (s < 86400) return Math.round(s / 3600) + ' hr';
+    return Math.round(s / 86400) + ' days';
+  }
+  function computeReturnBeat(metas) {
+    const KEY = 'arena.lastVisit';
+    let prev = null; try { prev = JSON.parse(localStorage.getItem(KEY)); } catch (_) {}
+    const now = Date.now();
+    const snap = { ts: now, towns: {} };
+    for (const m of metas) snap.towns[m.key] = { tools: m.totalTools || 0, sessions: m.totalSessions || 0, subagents: m.totalSubagents || 0, era: Arena.lore.eraIndex(m), lastSeen: m.lastSeen || 0, name: m.name };
+    const lines = [];
+    if (!prev || !prev.towns) {
+      lines.push(`⚑ <b>First muster</b> — ${metas.length} ${metas.length === 1 ? 'tribe' : 'tribes'} assembled.`);
+    } else {
+      for (const m of metas) {
+        const p = prev.towns[m.key]; const f = sim.factions.get(m.key);
+        if (!p) { lines.push(`✦ <b>${esc(m.name)}</b> founded.`); if (f) f._grewAt = now; continue; }
+        const dt = (m.totalTools || 0) - (p.tools || 0), ds = (m.totalSessions || 0) - (p.sessions || 0), dsub = (m.totalSubagents || 0) - (p.subagents || 0);
+        const eNow = Arena.lore.eraIndex(m);
+        if (eNow > (p.era || 0)) { lines.push(`▲ <b>${esc(m.name)}</b> rose to ${Arena.lore.ERAS[eNow]}.`); if (f) f._grewAt = now; }
+        else if (dt > 0 || ds > 0) { const pr = []; if (ds > 0) pr.push(`+${ds} session${ds > 1 ? 's' : ''}`); if (dt > 0) pr.push(`+${dt} tools`); if (dsub > 0) pr.push(`+${dsub} subagents`); lines.push(`• <b>${esc(m.name)}</b>: ${pr.join(', ')}`); if (f) f._grewAt = now; }
+      }
+      for (const m of metas) { const p = prev.towns[m.key]; if (!p) continue; const idleNow = (now - (m.lastSeen || 0)) > 2 * 86400000; const wasActive = (prev.ts - (p.lastSeen || 0)) < 86400000; if (idleNow && wasActive) lines.push(`◌ <b>${esc(m.name)}</b> fell quiet.`); }
+      if (lines.length === 0) lines.push('All quiet — nothing stirred since you last looked.');
+      lines.unshift(`<span class="crier-h">${fmtAway(now - prev.ts)} away</span>`);
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(snap)); } catch (_) {}
+    showCrier(lines.slice(0, 7));
+  }
+  function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+  function showCrier(lines) {
+    const body = document.getElementById('crier-body');
+    body.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+    document.getElementById('crier').classList.add('open');
+  }
+  document.getElementById('crier-x').onclick = () => document.getElementById('crier').classList.remove('open');
 
   function connect() {
     const es = new EventSource('/api/stream');
@@ -209,9 +254,18 @@
     setRenderer(current);
   }
 
-  // ---- curate panel --------------------------------------------------------
+  // ---- faction / town panel ------------------------------------------------
   const panel = document.getElementById('curate');
   let curated = null;
+  function ago(ms) {
+    if (!ms) return 'just now';
+    const s = (Date.now() - ms) / 1000;
+    if (s < 90) return 'moments ago';
+    if (s < 5400) return Math.round(s / 60) + ' min ago';
+    if (s < 129600) return Math.round(s / 3600) + ' hr ago';
+    return Math.round(s / 86400) + ' days ago';
+  }
+  function chip(label, val) { return `<div class="chip"><b>${val}</b><span>${label}</span></div>`; }
   function openCurate(f) {
     curated = f;
     panel.classList.add('open');
@@ -219,9 +273,47 @@
     panel.querySelector('#c-motto').value = f.motto || '';
     panel.querySelector('#c-hue').value = f.hue;
     panel.querySelector('#c-crest').value = f.crest;
-    panel.querySelector('#c-stats').innerHTML =
-      `<b>LVL ${f.level}</b> · ⚒ ${f.resources} harvested · ${f.totalTools} tools`;
     panel.querySelector('#c-swatch').style.background = U.hsl(f.hue, 70, 50);
+    refreshPanel();
+  }
+  function fmtDate(ms) { if (!ms) return '—'; const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function refreshPanel() {
+    const f = curated; if (!f) return;
+    const lore = Arena.lore;
+    const ageDays = f.firstSeen ? Math.max(0, Math.floor((Date.now() - f.firstSeen) / 86400000)) : 0;
+    panel.querySelector('#f-name-disp').textContent = f.name;
+    panel.querySelector('#f-sub').innerHTML =
+      `<b style="color:${U.hsl(f.hue, 62, 72)}">${f.eraName || 'Outpost'}</b> · est. ${fmtDate(f.firstSeen)} · ${ageDays}d old · ${lore.idleLabel(f)}`;
+    // motto + deterministic "character" line from the tool-mix
+    const motto = panel.querySelector('#f-motto');
+    motto.innerHTML = (f.motto ? `“${esc(f.motto)}”<br>` : '') + `<span class="char">${esc(lore.character(f))}</span>`;
+    motto.style.display = 'block';
+    // era progress bar
+    const prog = lore.eraProgress(f), next = lore.nextEra(f);
+    const eraBar = `<div class="erabar"><div class="erabar-fill" style="width:${Math.round(prog * 100)}%;background:${U.hsl(f.hue, 58, 56)}"></div></div>` +
+      `<div class="erabar-lbl">${next ? Math.round(prog * 100) + '% to ' + next : 'Capital — fully grown'}</div>`;
+    const houses = f.town ? f.town.houses.length : 0;
+    panel.querySelector('#f-stats').innerHTML = eraBar +
+      chip('houses', '⌂ ' + houses) + chip('harvested', '⚒ ' + (f.resources || 0)) +
+      chip('tools run', (f.totalTools || 0)) + chip('sessions', (f.totalSessions || 0)) +
+      chip('subagents', (f.totalSubagents || 0)) + chip('live now', (f.liveSessions || 0));
+    // heroes
+    const heroes = [];
+    for (const u of sim.units.values()) if (u.factionKey === f.key && u.kind === 'worker' && !u.dead) heroes.push(u);
+    heroes.sort((a, b) => (b.actions - a.actions) || (a.born - b.born));
+    panel.querySelector('#f-herocount').textContent = heroes.length ? `(${heroes.length})` : '';
+    const heroHtml = heroes.length ? heroes.slice(0, 8).map((u) => {
+      const id = u.identity || { name: 'Worker', title: '' };
+      const star = u.veteran ? `<span class="vet" title="veteran">★</span>` : '';
+      const act = u.state === 'gathering' ? 'harvesting' : u.state === 'toResource' ? 'en route' : u.state === 'returning' ? 'hauling' : u.state === 'rest' ? 'resting' : 'idle';
+      return `<div class="hero"><span class="hdot" style="background:${U.hsl(f.hue, 60, 55)}"></span>` +
+        `<span class="hn">${star}${esc(id.title)} ${esc(id.name)}</span><span class="ha">${act} · ${u.actions}⚒</span></div>`;
+    }).join('') : `<div class="dim" style="font-size:12px">No active sessions. Open Claude Code in this project to summon workers.</div>`;
+    // chronicle: milestones reached
+    const ms = f.milestones || [];
+    const msHtml = ms.length ? `<div class="f-h" style="margin-top:12px">▦ Chronicle <span class="dim">(${ms.length})</span></div>` +
+      `<div class="chron">` + ms.slice(-8).reverse().map((m) => `<span class="band">${esc(m)}</span>`).join('') + `</div>` : '';
+    panel.querySelector('#f-heroes').innerHTML = heroHtml + msHtml;
   }
   function closeCurate() { panel.classList.remove('open'); curated = null; }
   function applyCurate(save) {
@@ -247,13 +339,27 @@
   document.getElementById('btn-frame').onclick = () => { autoFrame = true; fitView(false); };
   document.getElementById('btn-demo').onclick = () => fetch('/api/demo', { method: 'POST' }).catch(() => {});
   document.getElementById('btn-shot').onclick = () => {
-    canvas.toBlob((blob) => {
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = 'claude-arena.png'; a.click();
-    });
+    const oc = document.createElement('canvas'); oc.width = canvas.width; oc.height = canvas.height;
+    const o = oc.getContext('2d'); o.drawImage(canvas, 0, 0);
+    const W2 = canvas.width, H2 = canvas.height, d = DPR, barH = 64 * d;
+    o.fillStyle = 'rgba(8,11,16,0.82)'; o.fillRect(0, H2 - barH, W2, barH);
+    const f = curated;
+    o.fillStyle = U.hsl(f ? f.hue : 205, 70, 55); o.fillRect(0, H2 - barH, 5 * d, barH);
+    o.textBaseline = 'middle'; o.textAlign = 'left';
+    let title, sub;
+    if (f) { const age = f.firstSeen ? Math.floor((Date.now() - f.firstSeen) / 86400000) : 0; title = f.name; sub = `Day ${age} · ${f.eraName || 'Outpost'} · ${(f.totalTools || 0).toLocaleString()} tools forged · ${f.totalSessions || 0} sessions`; }
+    else { let tools = 0, sess = 0; for (const x of sim.factions.values()) { tools += x.totalTools || 0; sess += x.totalSessions || 0; } title = 'Claude Arena'; sub = `${sim.factions.size} tribes · ${tools.toLocaleString()} tools forged · ${sess} sessions`; }
+    o.fillStyle = '#e9eff6'; o.font = `800 ${21 * d}px ui-sans-serif,system-ui,sans-serif`;
+    o.fillText('⚔ ' + title, 18 * d, H2 - barH + 23 * d);
+    o.fillStyle = '#93a4b8'; o.font = `600 ${12.5 * d}px ui-monospace,monospace`;
+    o.fillText(sub, 18 * d, H2 - barH + 45 * d);
+    o.fillStyle = '#6cc6ff'; o.font = `700 ${12.5 * d}px ui-sans-serif,system-ui`; o.textAlign = 'right';
+    o.fillText('claudearena.remotebb.com', W2 - 16 * d, H2 - barH / 2); o.textAlign = 'left';
+    oc.toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'claude-arena-postcard.png'; a.click(); });
   };
 
   // ---- main loop -----------------------------------------------------------
+  let hoverId = null;
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -268,7 +374,7 @@
     elLive.style.opacity = 0.4 + liveT * 0.6;
 
     const r = Arena.renderers[current];
-    const env = { w: W, h: H, cam, time: sim.time };
+    const env = { w: W, h: H, cam, time: sim.time, _s2w: screenToWorld, hoverId: hoverId };
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     r.background(ctx, env);

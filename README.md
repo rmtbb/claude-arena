@@ -11,7 +11,7 @@ A living world that draws itself — live — from your Claude Code hooks.
 
 ### 🌐 **[claudearena.remotebb.com](https://claudearena.remotebb.com)** — live interactive demo
 
-[**Install**](#-30-second-start) · [**How it works**](#how-it-actually-works) · [**The three skins**](#three-worlds-one-backend) · [**Privacy**](#privacy-the-short-honest-version)
+[**Install**](#-30-second-start) · [**How it works**](#how-it-actually-works) · [**Made to evolve**](#made-to-watch-evolve) · [**Privacy**](#privacy-the-short-honest-version)
 
 ![No dependencies](https://img.shields.io/badge/dependencies-zero-6cc6ff) ![Node 18+](https://img.shields.io/badge/node-18%2B-74e0a8) ![Runs](https://img.shields.io/badge/runs-localhost%20only-ff5d9e) ![Powered by](https://img.shields.io/badge/powered%20by-Claude%20Code%20hooks-ffd166)
 
@@ -40,20 +40,26 @@ quietly naps by the command center because its session hit `Stop`.
 
 Same information. Infinitely more "oh no it's 2am and I'm naming my projects."
 
-## Three worlds, one backend
+## Made to watch evolve
 
-Same world, same data, three completely different ways to look at it. Hit **Tab**
-to cycle, press **1 / 2 / 3**, or click the toggle. (Try it live on the
+This is the whole point. Everything below is derived from **real data only** —
+lifetime tool & session counts, first-seen dates, and the wall clock. No faked
+activity, no invented numbers. (See it live on the
 [demo](https://claudearena.remotebb.com).)
 
-| RTS | Aquarium | Cyber |
+| 🏰 It grows through eras | 🍂 It weathers & revives | 🗺️ It reads at a glance |
 |---|---|---|
-| ![RTS](site/assets/skin-rts.png) | ![Aquarium](site/assets/skin-aquarium.png) | ![Cyber](site/assets/skin-cyber.png) |
-| Top-down StarCraft energy. Command centers, hex resource nodes, visored workers with marching legs, territory that grows with your level. | A cozy reef tank. Bases are coral, units are fish, tools are anemones, light shafts drift through the water. | Dark grid, neon everything, glowing motion trails, energy conduits pulsing packets between nodes. Screenshot bait. |
+| ![grow](site/assets/feat-grow.png) | ![decay](site/assets/feat-decay.png) | ![glance](site/assets/feat-glance.png) |
+| **Outpost → Hamlet → Walled Town → Citadel → Capital.** Each tier unlocks real structure: palisades become stone walls, the keep gains a gilded roof, towers rise. Cross a threshold while you're away and the town is *structurally different* when you return. | Banners droop, colour drains, and moss creeps over a project gone quiet — honest neglect, never deletion. The instant a real session fires, life floods back and a worker spawns. Age leaves a permanent **patina**; idleness only veils it. | Each town is sized by its lifetime work and ringed by a colour that says worked-today vs idle-for-weeks. A Bash-heavy project grows forge chimneys; a Read-heavy one sprouts watchtowers — every town a recognizable **silhouette**. |
 
-There's **one simulation** and the skins are pure render layers, so adding a
-fourth (isometric medieval village? ant colony?) is a single file that reads the
-same world state.
+And when you open it after time away, a **town crier** greets you with exactly
+what changed: *"4 days away: +3 sessions, +812 tools, Null Pointers reached
+Citadel, Crit fell quiet."* Click any town for its dossier — era, founding date,
+named heroes, and a **Chronicle** of milestones it has crossed.
+
+> The world is one **RTS** today. The engine is a shared sim + a procedural
+> renderer, so cozy-aquarium and neon-cyber skins are on the way — same data,
+> different lens.
 
 ## ⚡ 30-second start
 
@@ -127,9 +133,8 @@ little lore.
 | Pan / Zoom | drag / scroll |
 | Frame everything | **R** or the ⤢ button |
 | Toggle auto-framing | **Space** |
-| Swap skin | **Tab**, or **1** / **2** / **3** |
-| Curate a tribe | click its base |
-| Screenshot | the ⤓ button |
+| Inspect / curate a town | click it (camera zooms in + dossier opens) |
+| Postcard | the ⤓ button (stamps name · era · stats) |
 
 ## Privacy (the short, honest version)
 
@@ -157,8 +162,8 @@ server.js                  ← tails the file, normalizes events (schema-agnosti
    │                          so a renamed field can't break it), keeps lifetime
    │                          faction stats, serves the UI + a live SSE stream.
    ▼
-your browser               ← one shared world-sim, three swappable renderers.
-                              all canvas, no image assets.
+your browser               ← shared world-sim + lore (eras/vitality/patina) +
+                              a procedural canvas renderer. no image assets.
 ```
 
 The hook does almost nothing on purpose — all the smarts live in the server, so
@@ -172,13 +177,19 @@ itself the next time you start it.
 server.js                  the local server (tail + normalize + SSE + static)
 install.js / uninstall.js  wire the hook into ~/.claude/settings.json (reversibly)
 hooks/arena-hook.sh        the capture hook
-public/                    the local app — index.html, sim.js, game.js, renderers/
+public/
+  art.js                   2.5D projection · lighting · day/night · shaded primitives
+  lore.js                  eras · vitality · patina · fingerprint · milestones (pure, from real data)
+  sim.js                   the world — towns built from history, named units, drones
+  renderers/rts.js         the procedural RTS renderer
+  game.js                  bootstrap: camera, input, panel, return-beat, postcard
 site/                      the landing page (the public demo at claudearena.remotebb.com)
 ```
 
 The local app (`public/`) and the public demo (`site/`) share the exact same
-engine — `sim.js` + `renderers/`. The only difference: the app gets its events
-from your real hooks over SSE; the demo generates fictional ones in the browser.
+engine — `art.js` + `lore.js` + `sim.js` + the renderer. The only difference: the
+app gets its events from your real hooks over SSE; the demo seeds fictional towns
+in the browser.
 
 ## Troubleshooting
 

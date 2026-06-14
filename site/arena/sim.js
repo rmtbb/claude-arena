@@ -43,14 +43,18 @@
 
     // ---- layout -----------------------------------------------------------
     placeFaction(key) {
-      // Grid that grows outward; generous spacing so bases never overlap.
+      // Loose grid + deterministic per-town jitter so settlements feel scattered
+      // across a land, not lined up in a row.
       const i = this.slot++;
       const cols = 4;
-      const cell = 620;
+      const cell = 680;
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const x = 480 + col * cell + (row % 2) * cell * 0.5;
-      const y = 420 + row * cell;
+      const h = window.Arena.art.hash(key);
+      const jx = ((h & 0xff) / 255 - 0.5) * cell * 0.62;
+      const jy = (((h >> 8) & 0xff) / 255 - 0.5) * cell * 0.62;
+      const x = 520 + col * cell + (row % 2) * cell * 0.5 + jx;
+      const y = 460 + row * cell + jy;
       return { x, y };
     }
 
@@ -65,15 +69,11 @@
           x: pos.x, y: pos.y,
           stations: {},
           beacon: 0, storm: 0, pop: 0,
-          resources: 0, totalTools: 0,
-          spawnFlash: 1,
+          resources: 0, totalTools: 0, totalSessions: 0,
+          spawnFlash: 1, town: null, _townSig: '',
         };
-        // Stations arranged in a ring around the base.
-        STATIONS.forEach((s, k) => {
-          const a = (k / STATIONS.length) * TAU - Math.PI / 2;
-          f.stations[s] = { x: f.x + Math.cos(a) * 150, y: f.y + Math.sin(a) * 150, type: s, pulse: 0 };
-        });
         this.factions.set(n.projectKey, f);
+        this.buildTown(f);
       }
       if (n.projectName && n.projectName !== 'Unknown') f.name = n.projectName;
       return f;
@@ -88,7 +88,88 @@
       f.level = meta.level || 1;
       f.resources = meta.resources || 0;
       f.totalTools = meta.totalTools || 0;
+      f.totalSessions = meta.totalSessions || 0;
+      f.totalSubagents = meta.totalSubagents || 0;
+      f.totalEvents = meta.totalEvents || 0;
+      f.liveSessions = meta.liveSessions || 0;
+      f.firstSeen = meta.firstSeen || f.firstSeen || null;
+      f.lastSeen = meta.lastSeen || f.lastSeen || null;
+      f.toolCounts = meta.toolCounts || f.toolCounts || {};
+      f.preCompacts = meta.preCompacts || 0;
       f.motto = meta.motto || null;
+      // lore derived from real data
+      const lore = window.Arena.lore;
+      f.era = lore.eraIndex(f);
+      f.eraName = lore.eraName(f);
+      f.patina = lore.patina(f);
+      f.gilded = lore.gilded(f);
+      f.fingerprint = lore.fingerprint(f);
+      f.milestones = lore.milestones(f);
+      this.buildTown(f); // rebuild only if the town signature changed (cheap, see below)
+    }
+
+    // ---- town layout: a persistent settlement derived from lifetime history --
+    // Stable + append-only: building/house positions are a pure function of the
+    // faction seed + index, so growth adds structures without shuffling old ones.
+    buildTown(f) {
+      const A = window.Arena.art;
+      const era = f.era || 0;                          // 0 Outpost .. 4 Capital
+      const fp = (f.fingerprint && f.fingerprint.weights) || {};
+      const tools = f.totalTools || 0;
+      const wf = (k) => 0.78 + (fp[k] || 0) * 1.3;     // skyline emphasis from tool-mix
+      // scale + density from real lifetime work (log so a giant never blows up)
+      const houseCount = Math.min(52, 2 + era * 5 + Math.floor((f.totalSessions || 0) * 0.55) + Math.floor((fp.workshop || 0) * 10));
+      const wallR = 58 + era * 15 + Math.min(46, Math.log10(1 + tools) * 9);
+      const hasWall = era >= 2;                         // Outpost/Hamlet are open
+      const stone = era >= 3;                           // palisade -> stone
+      f.droneCap = Math.round(7 + (fp.barracks || 0) * 18);
+      const sig = `${era}|${(f.fingerprint || {}).dominant}|${houseCount}|${Math.round(wallR)}|${f.gilded ? 1 : 0}`;
+      if (f._townSig === sig && f.town) return;
+      f._townSig = sig;
+
+      const seed = A.hash(f.key);
+      const ringR = wallR * 0.52;
+      // distinct footprints, each biased by how this project is actually worked
+      const defs = [
+        { type: 'forge', station: 'gas', ang: -1.1, w: 28 * wf('forge'), d: 22, h: 12 + 7 * (fp.forge || 0), emph: fp.forge || 0 },
+        { type: 'workshop', station: 'mineral', ang: 0.55, w: 28 * wf('workshop'), d: 26, h: 16, emph: fp.workshop || 0 },
+        { type: 'tower', station: 'scout', ang: -2.3, w: 13, d: 13, h: 40 + 44 * (fp.tower || 0), emph: fp.tower || 0 },
+        { type: 'wargate', station: 'expedition', ang: Math.PI / 2, w: 30, d: 14, h: 24, onWall: true, emph: fp.wargate || 0 },
+        { type: 'barracks', station: 'spawn', ang: 2.9, w: 34 * wf('barracks'), d: 18, h: 15, emph: fp.barracks || 0 },
+      ];
+      const buildings = defs.map((b) => {
+        const rad = (b.onWall && hasWall) ? wallR : ringR;
+        const x = Math.cos(b.ang) * rad, y = Math.sin(b.ang) * rad * 0.8;
+        return { ...b, x, y };
+      });
+      f.stations = {};
+      for (const b of buildings) f.stations[b.station] = { x: f.x + b.x, y: f.y + b.y, type: b.station, pulse: 0 };
+
+      // houses: append-only deterministic packing, avoiding keep + buildings
+      const houses = [];
+      let i = 0, guard = 0;
+      while (houses.length < houseCount && guard < houseCount * 12) {
+        guard++;
+        const hr = A.mulberry(seed ^ (0x9e37 * (i + 1)));
+        const ang = hr() * A.TAU, dist = 30 + hr() * (wallR - 36);
+        const x = Math.cos(ang) * dist, y = Math.sin(ang) * dist * 0.8;
+        i++;
+        if (Math.hypot(x, y) < 26) continue;
+        if (buildings.some((b) => Math.hypot(b.x - x, b.y - y) < 24)) continue;
+        if (houses.some((h) => Math.hypot(h.x - x, h.y - y) < 14)) continue;
+        houses.push({ x, y, w: 11 + (hr() * 5 | 0), h: 8 + (hr() * 6 | 0), roofHue: (hr() * 40 - 20), seed: hr() * 1000 });
+      }
+      const gates = [Math.PI / 2, -2.3, 0.5].map((a) => ({ x: Math.cos(a) * wallR, y: Math.sin(a) * wallR * 0.8, ang: a }));
+      const props = [];
+      const territory = wallR + 70;
+      for (let p = 0; p < 26; p++) {
+        const pr = A.mulberry(seed ^ (0x51ed * (p + 7)));
+        const ang = pr() * A.TAU, dist = wallR + 18 + pr() * 60;
+        props.push({ x: Math.cos(ang) * dist, y: Math.sin(ang) * dist * 0.8, kind: pr() < 0.65 ? 'tree' : 'rock', s: 6 + pr() * 6, seed: pr() });
+      }
+      // one Chronicle Stone near the keep; its height grows with milestone count
+      const chronicle = { x: 34, y: -6, bands: (f.milestones || []).length };
+      f.town = { era, wallR, ringR, territory, buildings, houses, gates, props, hasWall, stone, gilded: !!f.gilded, chronicle };
     }
 
     // ---- units ------------------------------------------------------------
@@ -109,8 +190,10 @@
         x: f.x + Math.cos(a) * 26, y: f.y + Math.sin(a) * 26,
         vx: 0, vy: 0, tx: f.x, ty: f.y,
         state: 'spawning', stateT: 0,
-        hue: f.hue, carry: null, parent: null,
+        hue: f.hue, carry: null, parent: null, tool: null, facing: 1,
         born: this.time, lastActive: this.time, alert: 0, scale: 0.1,
+        actions: 0, veteran: false,
+        identity: window.Arena.art.nameFor(String(sessionId)),
         seed: Math.random() * 1000, wob: Math.random() * TAU, energy: 1, dead: false, deadT: 0,
       };
       this.units.set(id, u);
@@ -136,7 +219,7 @@
       // Cap drones per faction so a big workflow doesn't overrun the screen.
       let count = 0;
       for (const u of this.units.values()) if (u.factionKey === f.key && u.kind === 'drone' && !u.dead) count++;
-      if (count > 14) return null;
+      if (count > (f.droneCap || 14)) return null;
       const id = UID++;
       const a = rnd(0, TAU);
       const u = {
@@ -193,6 +276,8 @@
         case 'PreToolUse': {
           const u = this.workerFor(f, n.sessionId);
           u.lastActive = this.time;
+          u.tool = n.tool; u.actions++;
+          if (u.actions >= 12 && !u.veteran) u.veteran = true;
           const st = TOOL_STATION[n.tool] || 'mineral';
           if (st === 'spawn') {
             const d = this.spawnDrone(f, u, n.subagentType);
@@ -270,6 +355,8 @@
         u.wob += dt * (u.kind === 'drone' ? 9 : 5);
         u.alert = Math.max(0, u.alert - dt * 0.7);
         if (u.scale < 1) u.scale = Math.min(1, u.scale + dt * 2.5);
+        if (Math.abs(u.vx) > 6) u.facing = u.vx >= 0 ? 1 : -1;
+        if (u.kind === 'worker' && !u.veteran && (this.time - u.born) > 100) u.veteran = true;
 
         const f = this.factions.get(u.factionKey);
         if (!f) continue;
