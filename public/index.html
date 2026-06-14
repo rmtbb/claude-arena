@@ -69,11 +69,11 @@
       <div class="rp-top"><span id="rp-when">—</span><span id="rp-speedlbl"></span></div>
       <input id="rp-scrub" type="range" min="0" max="1000" value="1000" step="1" />
     </div>
-    <div class="rp-speeds">
-      <button data-sp="0.5">½h/s</button>
-      <button data-sp="6">6h/s</button>
-      <button data-sp="24" class="on">1d/s</button>
-      <button data-sp="120">5d/s</button>
+    <div class="rp-speeds" id="rp-speeds">
+      <button data-mult="0.5">0.5×</button>
+      <button data-mult="1" class="on">1×</button>
+      <button data-mult="2">2×</button>
+      <button data-mult="4">4×</button>
     </div>
     <button id="rp-live" title="Return to live">● LIVE</button>
   </div>
@@ -102,6 +102,11 @@
     </div>
     <div id="f-motto" class="f-motto"></div>
     <div id="f-stats" class="f-stats"></div>
+    <div id="f-work"></div>
+    <div id="f-spark-wrap" style="display:none">
+      <div class="f-h">⟁ Activity <span class="dim" id="f-spark-sub"></span></div>
+      <canvas id="f-spark" class="f-spark" width="272" height="44"></canvas>
+    </div>
     <div class="f-section">
       <div class="f-h">⚔ Heroes <span id="f-herocount" class="dim"></span></div>
       <div id="f-heroes" class="f-heroes"></div>

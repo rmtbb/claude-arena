@@ -55,7 +55,7 @@
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     moved += Math.abs(dx) + Math.abs(dy);
     cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom;
-    cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; lastX = e.clientX; lastY = e.clientY;
+    cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; followUnitId = null; lastX = e.clientX; lastY = e.clientY;
   });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -127,28 +127,34 @@
     const snap = { ts: now, towns: {} };
     for (const m of metas) snap.towns[m.key] = { tools: m.totalTools || 0, sessions: m.totalSessions || 0, subagents: m.totalSubagents || 0, era: Arena.lore.eraIndex(m), lastSeen: m.lastSeen || 0, name: m.name };
     const lines = [];
+    let anyChange = false;
     if (!prev || !prev.towns) {
       lines.push(`⚑ <b>First muster</b> — ${metas.length} ${metas.length === 1 ? 'tribe' : 'tribes'} assembled.`);
     } else {
       for (const m of metas) {
         const p = prev.towns[m.key]; const f = sim.factions.get(m.key);
-        if (!p) { lines.push(`✦ <b>${esc(m.name)}</b> founded.`); if (f) f._grewAt = now; continue; }
+        if (!p) { lines.push(`✦ <b>${esc(m.name)}</b> founded.`); if (f) f._grewAt = now; anyChange = true; continue; }
         const dt = (m.totalTools || 0) - (p.tools || 0), ds = (m.totalSessions || 0) - (p.sessions || 0), dsub = (m.totalSubagents || 0) - (p.subagents || 0);
         const eNow = Arena.lore.eraIndex(m);
-        if (eNow > (p.era || 0)) { lines.push(`▲ <b>${esc(m.name)}</b> rose to ${Arena.lore.ERAS[eNow]}.`); if (f) f._grewAt = now; }
-        else if (dt > 0 || ds > 0) { const pr = []; if (ds > 0) pr.push(`+${ds} session${ds > 1 ? 's' : ''}`); if (dt > 0) pr.push(`+${dt} tools`); if (dsub > 0) pr.push(`+${dsub} subagents`); lines.push(`• <b>${esc(m.name)}</b>: ${pr.join(', ')}`); if (f) f._grewAt = now; }
+        if (eNow > (p.era || 0)) { lines.push(`▲ <b>${esc(m.name)}</b> rose to ${Arena.lore.ERAS[eNow]}.`); if (f) f._grewAt = now; anyChange = true; }
+        else if (dt > 0 || ds > 0) { const pr = []; if (ds > 0) pr.push(`+${ds} session${ds > 1 ? 's' : ''}`); if (dt > 0) pr.push(`+${dt} tools`); if (dsub > 0) pr.push(`+${dsub} subagents`); lines.push(`• <b>${esc(m.name)}</b>: ${pr.join(', ')}`); if (f) f._grewAt = now; anyChange = true; }
       }
       for (const m of metas) { const p = prev.towns[m.key]; if (!p) continue; const idleNow = (now - (m.lastSeen || 0)) > 2 * 86400000; const wasActive = (prev.ts - (p.lastSeen || 0)) < 86400000; if (idleNow && wasActive) lines.push(`◌ <b>${esc(m.name)}</b> fell quiet.`); }
-      if (lines.length === 0) lines.push('All quiet — nothing stirred since you last looked.');
+      if (!anyChange) lines.push('All quiet — nothing stirred since you last looked.');
       lines.unshift(`<span class="crier-h">${fmtAway(now - prev.ts)} away</span>`);
     }
     try { localStorage.setItem(KEY, JSON.stringify(snap)); } catch (_) {}
-    showCrier(lines.slice(0, 7));
+    // offer to WATCH the away period unfold (better than reading the deltas)
+    const watchFrom = (anyChange && prev && prev.ts) ? prev.ts : null;
+    showCrier(lines.slice(0, 7), watchFrom);
   }
   function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
-  function showCrier(lines) {
+  function showCrier(lines, watchFrom) {
     const body = document.getElementById('crier-body');
-    body.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+    let html = lines.map((l) => `<div>${l}</div>`).join('');
+    if (watchFrom) html += `<button id="crier-watch" class="crier-watch">▶ Watch it unfold</button>`;
+    body.innerHTML = html;
+    if (watchFrom) document.getElementById('crier-watch').onclick = () => { document.getElementById('crier').classList.remove('open'); enterReplay({ startAt: watchFrom }); };
     document.getElementById('crier').classList.add('open');
   }
   document.getElementById('crier-x').onclick = () => document.getElementById('crier').classList.remove('open');
@@ -173,23 +179,30 @@
 
   // ---- time-lapse replay ---------------------------------------------------
   let replay = null;
-  const SPEED_H = { '0.5': 0.5, '6': 6, '24': 24, '120': 120 };
+  const FULL_PLAY_SEC = 28;            // at 1× the watched span plays in ~28 real seconds
   function fmtWhen(ms) { const d = new Date(ms); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
-  async function enterReplay() {
-    if (replay) return;
+  // start the time-lapse. opts.startAt = where to begin (default: whole history,
+  // or the last ~3 days if longer). The "watched span" sets an ADAPTIVE base
+  // speed so it always plays in a comfortable ~28s at 1× — never a blink.
+  async function enterReplay(opts) {
+    opts = opts || {};
+    if (replay) { replay.reset && replay.reset(); replay = null; }
     document.getElementById('btn-history').classList.add('on');
     const r = new Arena.Replay(sim);
-    const meta = await r.load();
+    await r.load();
     if (!r.events.length) { sim.log('No history yet — go do some work!', 200); document.getElementById('btn-history').classList.remove('on'); return; }
     replay = r;
     document.getElementById('replay').classList.add('open');
-    // start ~3 days before the end (or at the very start if shorter)
     const span = r.to - r.from;
-    const startAt = span > 3 * 86400000 ? r.to - 3 * 86400000 : r.from;
-    r.speed = 24 * 3600000; r.seek(startAt); r.playing = true;
-    setReplaySpeedUI('24');
+    let startAt = opts.startAt != null ? Math.max(r.from, opts.startAt) : (span > 3 * 86400000 ? r.to - 3 * 86400000 : r.from);
+    if (r.to - startAt < 60000) startAt = r.from;   // guard against a near-empty window
+    r.viewFrom = startAt;                            // scrubber spans the WATCHED window
+    r.baseSpeed = Math.max(1000, (r.to - startAt) / FULL_PLAY_SEC); // sim-ms advanced per real second
+    r.mult = 1; r.speed = r.baseSpeed;
+    r.seek(startAt); r.playing = true;
+    setReplayMultUI('1');
     document.getElementById('rp-play').textContent = '❚❚';
-    autoFrame = true;
+    autoFrame = true; lastFactionCount = -1;
   }
   function exitReplay() {
     if (!replay) return;
@@ -197,24 +210,25 @@
     Arena.lore.setNow(null); Arena.art.setPhase(null);
     document.getElementById('replay').classList.remove('open');
     document.getElementById('btn-history').classList.remove('on');
-    // rebuild the live world
     const r2 = new Arena.Replay(sim); r2.reset();
     loadState().then(() => connect());
-    autoFrame = true; fitView(false);
+    autoFrame = true; lastFactionCount = -1;
   }
-  function setReplaySpeedUI(sp) { document.querySelectorAll('#rp-speeds button').forEach((b) => b.classList.toggle('on', b.dataset.sp === sp)); }
+  function setReplayMultUI(m) { document.querySelectorAll('#rp-speeds button').forEach((b) => b.classList.toggle('on', b.dataset.mult === m)); }
   function updateReplayUI() {
     if (!replay) return;
+    const from = replay.viewFrom != null ? replay.viewFrom : replay.from;
+    const span = replay.to - from || 1;
     document.getElementById('rp-when').textContent = fmtWhen(replay.clock);
-    const span = replay.to - replay.from || 1;
-    document.getElementById('rp-scrub').value = Math.round(((replay.clock - replay.from) / span) * 1000);
+    document.getElementById('rp-speedlbl').textContent = (replay.mult || 1) + '×';
+    document.getElementById('rp-scrub').value = Math.round(((replay.clock - from) / span) * 1000);
     document.getElementById('rp-play').textContent = replay.playing ? '❚❚' : '▶';
   }
   document.getElementById('btn-history').onclick = () => { replay ? exitReplay() : enterReplay(); };
   document.getElementById('rp-live').onclick = exitReplay;
-  document.getElementById('rp-play').onclick = () => { if (replay) { replay.playing = !replay.playing; if (replay.clock >= replay.to) replay.seek(replay.from); } };
-  document.getElementById('rp-scrub').addEventListener('input', (e) => { if (!replay) return; const span = replay.to - replay.from; replay.playing = false; replay.seek(replay.from + (e.target.value / 1000) * span); });
-  document.querySelectorAll('#rp-speeds button').forEach((b) => b.onclick = () => { if (!replay) return; replay.speed = SPEED_H[b.dataset.sp] * 3600000; setReplaySpeedUI(b.dataset.sp); });
+  document.getElementById('rp-play').onclick = () => { if (replay) { if (replay.clock >= replay.to) replay.seek(replay.viewFrom != null ? replay.viewFrom : replay.from); replay.playing = !replay.playing; } };
+  document.getElementById('rp-scrub').addEventListener('input', (e) => { if (!replay) return; const from = replay.viewFrom != null ? replay.viewFrom : replay.from; const span = replay.to - from; replay.playing = false; replay.seek(from + (e.target.value / 1000) * span); });
+  document.querySelectorAll('#rp-speeds button').forEach((b) => b.onclick = () => { if (!replay) return; replay.mult = +b.dataset.mult; replay.speed = replay.baseSpeed * replay.mult; if (replay.clock >= replay.to) { replay.seek(replay.viewFrom != null ? replay.viewFrom : replay.from); replay.playing = true; } setReplayMultUI(b.dataset.mult); });
 
   // ---- shared effects draw (world space) -----------------------------------
   function drawEffects() {
@@ -333,7 +347,9 @@
       chip('houses', '⌂ ' + houses) + chip('harvested', '⚒ ' + (f.resources || 0)) +
       chip('tools run', (f.totalTools || 0)) + chip('sessions', (f.totalSessions || 0)) +
       chip('subagents', (f.totalSubagents || 0)) + chip('live now', (f.liveSessions || 0));
-    // heroes
+    panel.querySelector('#f-work').innerHTML = workBar(f);   // how it's built
+    drawSpark(f);                                            // 21-day activity pulse
+    // heroes (click to follow)
     const heroes = [];
     for (const u of sim.units.values()) if (u.factionKey === f.key && u.kind === 'worker' && !u.dead) heroes.push(u);
     heroes.sort((a, b) => (b.actions - a.actions) || (a.born - b.born));
@@ -341,14 +357,15 @@
     const heroHtml = heroes.length ? heroes.slice(0, 8).map((u) => {
       const id = u.identity || { name: 'Worker', title: '' };
       const star = u.veteran ? `<span class="vet" title="veteran">★</span>` : '';
-      const act = u.state === 'gathering' ? 'harvesting' : u.state === 'toResource' ? 'en route' : u.state === 'returning' ? 'hauling' : u.state === 'rest' ? 'resting' : 'idle';
-      return `<div class="hero"><span class="hdot" style="background:${U.hsl(f.hue, 60, 55)}"></span>` +
-        `<span class="hn">${star}${esc(id.title)} ${esc(id.name)}</span><span class="ha">${act} · ${u.actions}⚒</span></div>`;
+      const act = u.state === 'gathering' ? 'harvesting' : u.state === 'toResource' ? 'en route' : u.state === 'returning' ? 'hauling' : u.state === 'rest' ? 'resting' : 'roaming';
+      const sub = u.sub ? ` <span class="dim">· ${esc((u.sub.split('/').pop()) || '')}</span>` : '';
+      return `<div class="hero click" data-uid="${u.id}"><span class="hdot" style="background:${U.hsl(f.hue, 60, 55)}"></span>` +
+        `<span class="hn">${star}${esc(id.title)} ${esc(id.name)}${sub}</span><span class="ha">${act} · ${u.actions}⚒</span></div>`;
     }).join('') : `<div class="dim" style="font-size:12px">No active sessions. Open Claude Code in this project to summon workers.</div>`;
-    // districts: subfolder satellites
+    // districts: subfolder satellites (click to fly there)
     const mem = f.members || [];
     const memHtml = mem.length ? `<div class="f-h" style="margin-top:13px">⌂ Districts <span class="dim">(${mem.length})</span></div>` +
-      `<div class="f-heroes">` + mem.slice(0, 10).map((m) => `<div class="hero"><span class="hdot" style="background:${U.hsl(f.hue, 42, 50)}"></span>` +
+      `<div class="f-heroes">` + mem.slice(0, 12).map((m) => `<div class="hero click" data-sub="${esc(m.sub)}"><span class="hdot" style="background:${U.hsl(f.hue, 42, 50)}"></span>` +
         `<span class="hn">${esc(m.name)}</span><span class="ha">${m.tools}⚒ · ${Arena.lore.idleLabel({ lastSeen: m.lastSeen })}</span></div>`).join('') + `</div>` : '';
     // chronicle: milestones reached
     const ms = f.milestones || [];
@@ -356,7 +373,42 @@
       `<div class="chron">` + ms.slice(-8).reverse().map((m) => `<span class="band">${esc(m)}</span>`).join('') + `</div>` : '';
     panel.querySelector('#f-heroes').innerHTML = heroHtml + memHtml + msHtml;
   }
-  function closeCurate() { panel.classList.remove('open'); curated = null; }
+
+  // ---- drill-down: work signature, activity pulse, follow a unit -----------
+  const CAT_RGB = { forge: [255, 150, 70], workshop: [110, 180, 255], tower: [255, 214, 110], wargate: [185, 150, 255], barracks: [255, 110, 150] };
+  const CAT_TIP = { forge: 'Bash', workshop: 'Edit', tower: 'Read', wargate: 'Web', barracks: 'Task' };
+  function workBar(f) {
+    const w = (f.fingerprint && f.fingerprint.weights) || {};
+    const order = ['forge', 'workshop', 'tower', 'wargate', 'barracks'].filter((k) => (w[k] || 0) > 0.005);
+    if (!order.length) return '';
+    const seg = order.map((k) => `<span style="width:${(w[k] * 100).toFixed(2)}%;background:rgb(${CAT_RGB[k].join(',')})"></span>`).join('');
+    const leg = order.map((k) => `<span class="wl"><i style="background:rgb(${CAT_RGB[k].join(',')})"></i>${CAT_TIP[k]} ${Math.round(w[k] * 100)}%</span>`).join('');
+    return `<div class="f-h" style="margin-top:13px">⚒ Work signature</div><div class="workbar">${seg}</div><div class="worklegend">${leg}</div>`;
+  }
+  let _hist = null;
+  async function ensureHistory() { if (_hist) return _hist; try { const r = await fetch('/api/history'); _hist = await r.json(); } catch (_) { _hist = { events: [] }; } return _hist; }
+  async function drawSpark(f) {
+    const wrap = document.getElementById('f-spark-wrap'), cv = document.getElementById('f-spark');
+    const key = f.key, h = await ensureHistory();
+    if (curated !== f) return;
+    const DAYS = 21, dayMs = 86400000, now = Date.now(), buckets = new Array(DAYS).fill(0);
+    for (const e of h.events) { if (e[2] !== key || e[1] !== 'PreToolUse') continue; const di = Math.floor((now - e[0]) / dayMs); if (di >= 0 && di < DAYS) buckets[DAYS - 1 - di]++; }
+    const total = buckets.reduce((a, b) => a + b, 0);
+    if (!total) { wrap.style.display = 'none'; return; }
+    const max = Math.max(1, ...buckets), x = cv.getContext('2d'), W = cv.width, H = cv.height; x.clearRect(0, 0, W, H);
+    const bw = W / DAYS;
+    for (let i = 0; i < DAYS; i++) { const bh = (buckets[i] / max) * (H - 5); x.fillStyle = buckets[i] ? U.hsl(f.hue, 58, 58) : 'rgba(255,255,255,0.05)'; x.fillRect(i * bw + 1, H - Math.max(2, bh) - 1, bw - 2, Math.max(2, bh)); }
+    document.getElementById('f-spark-sub').textContent = `${total} tools · last 21 days`;
+    wrap.style.display = 'block';
+  }
+  function focusSatellite(f, sub) { if (!f.town || !f.town.satellites) return; const s = f.town.satellites.find((x) => x.sub === sub); if (!s) return; followUnitId = null; autoFrame = false; cam.tx = f.x + s.x; cam.ty = f.y + s.y; cam.tzoom = Math.max(cam.zoom, 1.7); }
+  document.getElementById('f-heroes').addEventListener('click', (e) => {
+    const row = e.target.closest('.hero.click'); if (!row) return;
+    if (row.dataset.uid) { followUnitId = +row.dataset.uid; autoFrame = false; }
+    else if (row.dataset.sub != null && curated) focusSatellite(curated, row.dataset.sub);
+  });
+
+  function closeCurate() { panel.classList.remove('open'); curated = null; followUnitId = null; }
   function applyCurate(save) {
     if (!curated) return;
     const name = panel.querySelector('#c-name').value.trim() || curated.name;
@@ -446,6 +498,7 @@
 
   // ---- main loop -----------------------------------------------------------
   let hoverId = null;
+  let followUnitId = null;
   let lastFactionCount = -1;
   let last = performance.now();
   function frame(now) {
@@ -456,6 +509,8 @@
     // camera: only RE-frame when the set of tribes changes (a new town appears)
     // or on explicit request — never every frame, so it stays rock-steady.
     if (autoFrame && sim.factions.size !== lastFactionCount) { lastFactionCount = sim.factions.size; fitView(false); }
+    // follow a selected worker around the world (drill-down)
+    if (followUnitId != null) { const fu = sim.units.get(followUnitId); if (fu && !fu.dead) { cam.tx = fu.x; cam.ty = fu.y - 8; if (cam.tzoom < 1.5) cam.tzoom = 1.8; } else followUnitId = null; }
     // smooth easing toward the (stable) target
     const ease = Math.min(1, dt * 3.2);
     cam.x += (cam.tx - cam.x) * ease;
@@ -469,7 +524,7 @@
     elLive.style.opacity = 0.4 + liveT * 0.6;
 
     const r = Arena.renderers[current];
-    const env = { w: W, h: H, cam, time: sim.time, _s2w: screenToWorld, hoverId: hoverId, DPR: DPR };
+    const env = { w: W, h: H, cam, time: sim.time, _s2w: screenToWorld, hoverId: hoverId || followUnitId, DPR: DPR };
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     r.background(ctx, env);

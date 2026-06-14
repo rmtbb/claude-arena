@@ -54,8 +54,14 @@ activity, no invented numbers. (See it live on the
 
 And when you open it after time away, a **town crier** greets you with exactly
 what changed: *"4 days away: +3 sessions, +812 tools, Null Pointers reached
-Citadel, Crit fell quiet."* Click any town for its dossier — era, founding date,
-named heroes, and a **Chronicle** of milestones it has crossed.
+Citadel."* — with a **▶ Watch it unfold** button that time-lapses just the
+period you missed.
+
+**Drill in.** Click any town for its dossier — era, founding date, a **work
+signature** bar (how the project is actually worked: Bash vs Edit vs Read…), a
+**21-day activity** sparkline, its **districts** (subfolders), and named
+**heroes** you can *click to follow* around the world. A **Chronicle** records
+the milestones it has crossed.
 
 > The world is one **RTS** today. The engine is a shared sim + a procedural
 > renderer, so cozy-aquarium and neon-cyber skins are on the way — same data,
@@ -146,8 +152,9 @@ It isn't a static diorama — it lives, and you can shape it:
 ## ⏳ Watch the whole history
 
 Hit **⏳ History** to drop into a **time-lapse**. Scrub the timeline to any
-moment, play forward at ½h/s up to 5 days/sec, and watch your towns rise from a
-single Outpost — eras crossing, walls going up, day and night flickering past.
+moment and play forward at an **adaptive speed** — 1× walks the whole span in
+~30 seconds, and 0.5× / 2× / 4× speed it up or down — watching your towns rise
+from a single Outpost as eras cross, walls go up, and day and night flicker past.
 It replays the real timestamped event log, rebuilding the world exactly as it was
 at any point. Hit **● LIVE** to snap back to now.
 

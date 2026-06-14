@@ -171,6 +171,10 @@ body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-in
 #crier-x { position: absolute; top: 8px; right: 8px; background: transparent; border: 0;
   color: var(--muted); cursor: pointer; font-size: 13px; }
 #crier-x:hover { color: var(--fg); }
+.crier-watch { margin-top: 11px; width: 100%; background: linear-gradient(100deg, var(--accent), #4aa6ff);
+  color: #04101c; border: 0; border-radius: 9px; padding: 9px; font: inherit; font-weight: 800; cursor: pointer;
+  transition: all 0.15s; }
+.crier-watch:hover { filter: brightness(1.08); transform: translateY(-1px); }
 
 /* panel: title, era, character, chronicle */
 .c-title { display: flex; flex-direction: column; line-height: 1.25; }
@@ -194,6 +198,17 @@ body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-in
 .hn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hn .vet { color: var(--amber); }
 .ha { color: var(--dim); font-size: 10.5px; font-family: ui-monospace, monospace; }
+/* drill-down: work signature, activity sparkline, clickable rows */
+.workbar { display: flex; height: 9px; border-radius: 5px; overflow: hidden; margin: 8px 0 7px; background: rgba(255,255,255,0.06); }
+.workbar span { height: 100%; }
+.worklegend { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 12px; font-size: 10px; color: var(--muted); }
+.worklegend .wl { display: inline-flex; align-items: center; gap: 4px; }
+.worklegend i { width: 8px; height: 8px; border-radius: 2px; }
+.f-spark { width: 100%; height: 44px; display: block; margin: 6px 0 14px; }
+.hero.click { cursor: pointer; border-radius: 6px; padding: 3px 5px; margin: 0 -5px; transition: background 0.12s; }
+.hero.click:hover { background: rgba(108,198,255,0.1); }
+.hero.click:hover .hn { color: var(--accent); }
+
 .chron { display: flex; flex-wrap: wrap; gap: 4px; }
 .chron .band { font-size: 10px; background: rgba(255,209,102,0.12); color: #ffe0a0;
   border: 1px solid rgba(255,209,102,0.22); border-radius: 5px; padding: 2px 6px; }
