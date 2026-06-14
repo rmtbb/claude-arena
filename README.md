@@ -123,9 +123,12 @@ humble outpost.
 
 It isn't a static diorama — it lives, and you can shape it:
 
-- **One tribe per project.** Every session launched anywhere inside a project
-  folder (even deep subfolders like `myproj/outputs/run-3`) rolls up to the same
-  tribe — resolved to the project root server-side.
+- **One tribe per project, with districts.** Every session launched inside a
+  project folder belongs to the same tribe (resolved to the project root) — and
+  each **subfolder** (`myproj/outputs/run-3`) becomes a visible **satellite
+  settlement** ringing the capital, joined by a road and flying the tribe's
+  banner. The main folder is the capital; the subfolders are its districts, each
+  with its own little life and stats (see them in the dossier).
 - **The Stop-Beat.** Finishing a turn (the `Stop` hook) makes the town *exhale*:
   a warm tide of light blooms from the keep, scaled by how much work that turn
   did, and the work crystallizes into the town's coffers. The single heartbeat of

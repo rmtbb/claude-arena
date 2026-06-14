@@ -89,8 +89,11 @@
       <summary>✎ Customize tribe</summary>
       <label>Name<input id="c-name" type="text" maxlength="40" /></label>
       <label>Motto<input id="c-motto" type="text" maxlength="60" placeholder="optional battle cry" /></label>
-      <label>Banner color<input id="c-hue" type="range" min="0" max="359" /></label>
-      <label>Crest<input id="c-crest" type="range" min="0" max="11" /></label>
+      <label>Banner colour</label>
+      <div id="c-hues" class="swatches"></div>
+      <label>Crest</label>
+      <div id="c-crests" class="crestgrid"></div>
+      <input id="c-hue" type="hidden" /><input id="c-crest" type="hidden" />
       <button id="c-save" class="save">Save tribe</button>
     </details>
   </aside>

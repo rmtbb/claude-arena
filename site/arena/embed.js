@@ -33,14 +33,21 @@
     { key: '/t/kernel-panic', name: 'Kernel Panic', hue: 95, crest: 5, tools: 36, sess: 6, sub: 0, ageD: 3, idleD: 0, dom: 'forge' },
   ];
 
+  // a few tribes have subfolder "districts" — satellite extensions of the capital
+  const SATS = {
+    '/t/null-pointers': [{ sub: 'core', name: 'Core', tools: 1800 }, { sub: 'web', name: 'Web', tools: 700 }, { sub: 'docs', name: 'Docs', tools: 180 }, { sub: 'infra', name: 'Infra', tools: 60 }],
+    '/t/the-refactory': [{ sub: 'engine', name: 'Engine', tools: 600 }, { sub: 'tests', name: 'Tests', tools: 120 }],
+    '/t/heap-overlords': [{ sub: 'alloc', name: 'Allocator', tools: 300 }, { sub: 'gc', name: 'GC', tools: 80 }],
+  };
   TRIBES.forEach((t) => {
     t.lastSeen = now - t.idleD * DAY - (t.idleD ? 0 : Math.random() * 1800000);
+    const members = (SATS[t.key] || []).map((m) => ({ ...m, sessions: 1 + (m.tools / 200 | 0), firstSeen: now - t.ageD * DAY, lastSeen: t.lastSeen }));
     sim.applyFactionMeta({
       key: t.key, name: t.name, hue: t.hue, crest: t.crest,
       level: 1, resources: Math.round(t.tools * 0.6), totalTools: t.tools,
       totalSessions: t.sess, totalSubagents: t.sub, totalEvents: t.tools * 2,
       liveSessions: t.idleD ? 0 : 2, firstSeen: now - t.ageD * DAY, lastSeen: t.lastSeen,
-      toolCounts: counts(t.tools, t.dom), preCompacts: Math.floor(t.tools / 800),
+      toolCounts: counts(t.tools, t.dom), preCompacts: Math.floor(t.tools / 800), members,
     });
   });
 

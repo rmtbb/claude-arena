@@ -325,6 +325,7 @@
     panel.querySelector('#c-hue').value = f.hue;
     panel.querySelector('#c-crest').value = f.crest;
     panel.querySelector('#c-swatch').style.background = U.hsl(f.hue, 70, 50);
+    markHue(f.hue); markCrest(f.crest);
     refreshPanel();
   }
   function fmtDate(ms) { if (!ms) return '—'; const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -360,11 +361,16 @@
       return `<div class="hero"><span class="hdot" style="background:${U.hsl(f.hue, 60, 55)}"></span>` +
         `<span class="hn">${star}${esc(id.title)} ${esc(id.name)}</span><span class="ha">${act} · ${u.actions}⚒</span></div>`;
     }).join('') : `<div class="dim" style="font-size:12px">No active sessions. Open Claude Code in this project to summon workers.</div>`;
+    // districts: subfolder satellites
+    const mem = f.members || [];
+    const memHtml = mem.length ? `<div class="f-h" style="margin-top:13px">⌂ Districts <span class="dim">(${mem.length})</span></div>` +
+      `<div class="f-heroes">` + mem.slice(0, 10).map((m) => `<div class="hero"><span class="hdot" style="background:${U.hsl(f.hue, 42, 50)}"></span>` +
+        `<span class="hn">${esc(m.name)}</span><span class="ha">${m.tools}⚒ · ${Arena.lore.idleLabel({ lastSeen: m.lastSeen })}</span></div>`).join('') + `</div>` : '';
     // chronicle: milestones reached
     const ms = f.milestones || [];
-    const msHtml = ms.length ? `<div class="f-h" style="margin-top:12px">▦ Chronicle <span class="dim">(${ms.length})</span></div>` +
+    const msHtml = ms.length ? `<div class="f-h" style="margin-top:13px">▦ Chronicle <span class="dim">(${ms.length})</span></div>` +
       `<div class="chron">` + ms.slice(-8).reverse().map((m) => `<span class="band">${esc(m)}</span>`).join('') + `</div>` : '';
-    panel.querySelector('#f-heroes').innerHTML = heroHtml + msHtml;
+    panel.querySelector('#f-heroes').innerHTML = heroHtml + memHtml + msHtml;
   }
   function closeCurate() { panel.classList.remove('open'); curated = null; }
   function applyCurate(save) {
@@ -381,10 +387,23 @@
       closeCurate();
     }
   }
-  panel.querySelector('#c-hue').addEventListener('input', () => applyCurate(false));
-  panel.querySelector('#c-crest').addEventListener('input', () => applyCurate(false));
   panel.querySelector('#c-save').onclick = () => applyCurate(true);
   panel.querySelector('#c-close').onclick = closeCurate;
+
+  // visual customizer: a banner-colour palette + a clickable crest grid
+  const CUST_HUES = [0, 28, 45, 80, 135, 168, 200, 222, 255, 288, 318, 344];
+  function buildCustomizer() {
+    const hueHost = document.getElementById('c-hues');
+    CUST_HUES.forEach((h) => { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'swatch-btn'; btn.style.background = U.hsl(h, 62, 52); btn.dataset.h = h; btn.onclick = () => { panel.querySelector('#c-hue').value = h; markHue(h); applyCurate(false); }; hueHost.appendChild(btn); });
+    const crestHost = document.getElementById('c-crests');
+    for (let i = 0; i < 12; i++) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'crest-btn'; btn.dataset.c = i; const cv = document.createElement('canvas'); cv.width = cv.height = 30; btn.appendChild(cv); btn.onclick = () => { panel.querySelector('#c-crest').value = i; markCrest(i); applyCurate(false); }; crestHost.appendChild(btn); }
+  }
+  function markHue(h) { document.querySelectorAll('#c-hues .swatch-btn').forEach((b) => b.classList.toggle('on', +b.dataset.h === +h)); redrawCrests(); }
+  function markCrest(i) { document.querySelectorAll('#c-crests .crest-btn').forEach((b) => b.classList.toggle('on', +b.dataset.c === +i)); }
+  function redrawCrests() {
+    const hue = +panel.querySelector('#c-hue').value || 200;
+    document.querySelectorAll('#c-crests .crest-btn canvas').forEach((cv, i) => { const x = cv.getContext('2d'); x.clearRect(0, 0, 30, 30); U.crest(x, i, 15, 15, 9, U.hsl(hue, 72, 72)); });
+  }
 
   // ---- player agency: Folk-Drops (plant things that grow from real work) ----
   let dropMode = false;
@@ -442,17 +461,25 @@
 
   // ---- main loop -----------------------------------------------------------
   let hoverId = null;
+  let lastFactionCount = -1;
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (replay) { replay.step(dt); updateReplayUI(); }
     sim.update(dt);
 
-    // camera easing
-    if (autoFrame) fitView(false);
-    cam.x += (cam.tx - cam.x) * Math.min(1, dt * 4);
-    cam.y += (cam.ty - cam.y) * Math.min(1, dt * 4);
-    cam.zoom += (cam.tzoom - cam.zoom) * Math.min(1, dt * 4);
+    // camera: only RE-frame when the set of tribes changes (a new town appears)
+    // or on explicit request — never every frame, so it stays rock-steady.
+    if (autoFrame && sim.factions.size !== lastFactionCount) { lastFactionCount = sim.factions.size; fitView(false); }
+    // smooth easing toward the (stable) target
+    const ease = Math.min(1, dt * 3.2);
+    cam.x += (cam.tx - cam.x) * ease;
+    cam.y += (cam.ty - cam.y) * ease;
+    cam.zoom += (cam.tzoom - cam.zoom) * ease;
+    // snap when essentially arrived so it never micro-drifts forever
+    if (Math.abs(cam.tx - cam.x) < 0.4) cam.x = cam.tx;
+    if (Math.abs(cam.ty - cam.y) < 0.4) cam.y = cam.ty;
+    if (Math.abs(cam.tzoom - cam.zoom) < 0.0005) cam.zoom = cam.tzoom;
     liveT = Math.max(0, liveT - dt * 1.5);
     elLive.style.opacity = 0.4 + liveT * 0.6;
 
@@ -478,6 +505,7 @@
 
   // ---- go ------------------------------------------------------------------
   buildSwitcher();
+  buildCustomizer();
   loadState().then(() => connect());
   requestAnimationFrame(frame);
 })();

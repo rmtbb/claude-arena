@@ -167,8 +167,24 @@ body:active { cursor: grabbing; }
 .f-customize label { margin-top: 8px; }
 #unit-tip { position: fixed; z-index: 12; pointer-events: none; display: none; }
 
-/* toolbar active state (History) */
+/* toolbar active state (History / Plant) */
 #toolbar button.on { border-color: var(--accent); color: var(--accent); background: rgba(108,198,255,0.12); }
+
+/* the dossier can get tall (districts + chronicle) — let it scroll */
+#curate { max-height: calc(100vh - 32px); overflow-y: auto; scrollbar-width: thin; }
+#curate::-webkit-scrollbar { width: 7px; }
+#curate::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+
+/* customizer: banner-colour swatches + clickable crest grid */
+.swatches { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 14px; }
+.swatch-btn { width: 22px; height: 22px; border-radius: 6px; border: 2px solid transparent; cursor: pointer; padding: 0; transition: transform 0.12s; }
+.swatch-btn:hover { transform: scale(1.14); }
+.swatch-btn.on { border-color: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,0.45); }
+.crestgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin: 6px 0 14px; }
+.crest-btn { aspect-ratio: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; transition: all 0.12s; }
+.crest-btn:hover { background: rgba(255,255,255,0.1); }
+.crest-btn.on { border-color: var(--accent); background: rgba(108,198,255,0.16); }
+.crest-btn canvas { width: 24px; height: 24px; }
 
 /* time-lapse replay bar */
 #replay {

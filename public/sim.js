@@ -137,6 +137,7 @@
       f.lastSeen = meta.lastSeen || f.lastSeen || null;
       f.toolCounts = meta.toolCounts || f.toolCounts || {};
       f.preCompacts = meta.preCompacts || 0;
+      f.members = meta.members || f.members || [];
       f.motto = meta.motto || null;
       // lore derived from real data
       const lore = window.Arena.lore;
@@ -164,7 +165,9 @@
       const hasWall = era >= 2;                         // Outpost/Hamlet are open
       const stone = era >= 3;                           // palisade -> stone
       f.droneCap = Math.round(7 + (fp.barracks || 0) * 18);
-      const sig = `${era}|${(f.fingerprint || {}).dominant}|${houseCount}|${Math.round(wallR)}|${f.gilded ? 1 : 0}`;
+      const members = f.members || [];
+      const memSig = members.map((m) => m.sub + ':' + (m.tools < 30 ? 0 : m.tools < 150 ? 1 : 2)).join(',');
+      const sig = `${era}|${(f.fingerprint || {}).dominant}|${houseCount}|${Math.round(wallR)}|${f.gilded ? 1 : 0}|${memSig}`;
       if (f._townSig === sig && f.town) return;
       f._townSig = sig;
 
@@ -210,11 +213,40 @@
       }
       // one Chronicle Stone near the keep; its height grows with milestone count
       const chronicle = { x: 34, y: -6, bands: (f.milestones || []).length };
-      f.town = { era, wallR, ringR, territory, buildings, houses, gates, props, hasWall, stone, gilded: !!f.gilded, chronicle };
+
+      // satellite settlements: each subfolder is a visible extension of the capital,
+      // ringed outside the walls and joined to it by a road. Stable angle per sub.
+      const satellites = [];
+      const satRing = territory + 70;
+      let satMax = territory;
+      members.forEach((m, k) => {
+        const mh = A.hash(f.key + '#' + m.sub);
+        const ang = (mh % 1000) / 1000 * A.TAU;
+        const tier = m.tools < 30 ? 0 : m.tools < 150 ? 1 : 2;
+        const r = satRing + tier * 14;
+        const sx = Math.cos(ang) * r, sy = Math.sin(ang) * r * 0.82;
+        const huts = 1 + tier + Math.min(4, Math.floor(m.tools / 50));
+        const hutList = [];
+        const hr = A.mulberry(mh);
+        for (let q = 0; q < huts; q++) { const a = hr() * A.TAU, d = 6 + hr() * (10 + tier * 6); hutList.push({ x: sx + Math.cos(a) * d, y: sy + Math.sin(a) * d * 0.8, w: 9 + (hr() * 4 | 0), h: 7 + (hr() * 4 | 0), seed: hr() * 1000, roofHue: hr() * 30 - 15 }); }
+        satellites.push({ sub: m.sub, name: m.name, x: sx, y: sy, tier, tools: m.tools, lastSeen: m.lastSeen, huts: hutList, ang });
+        satMax = Math.max(satMax, r + 30);
+      });
+
+      f.town = { era, wallR, ringR, territory, buildings, houses, gates, props, hasWall, stone, gilded: !!f.gilded, chronicle, satellites, radius: satMax };
     }
 
     // ---- units ------------------------------------------------------------
-    spawnWorker(f, sessionId) {
+    // home = the worker's settlement (a satellite for subfolder sessions, else the
+    // capital). Workers idle near home but commute to the capital's stations to work.
+    homeFor(f, sub) {
+      if (sub && f.town && f.town.satellites) {
+        const s = f.town.satellites.find((x) => x.sub === sub);
+        if (s) return { x: f.x + s.x, y: f.y + s.y };
+      }
+      return { x: f.x, y: f.y };
+    }
+    spawnWorker(f, sessionId, sub) {
       // Hard cap workers per faction; recycle the stalest so we never runaway.
       let count = 0, oldest = null;
       for (const u of this.units.values()) {
@@ -223,13 +255,15 @@
           if (!oldest || u.lastActive < oldest.lastActive) oldest = u;
         }
       }
-      if (count >= 24 && oldest) { oldest.state = 'leaving'; oldest.stateT = 0; }
+      if (count >= 28 && oldest) { oldest.state = 'leaving'; oldest.stateT = 0; }
+      const home = this.homeFor(f, sub);
       const id = UID++;
       const a = rnd(0, TAU);
       const u = {
-        id, kind: 'worker', factionKey: f.key, sessionId,
-        x: f.x + Math.cos(a) * 26, y: f.y + Math.sin(a) * 26,
-        vx: 0, vy: 0, tx: f.x, ty: f.y,
+        id, kind: 'worker', factionKey: f.key, sessionId, sub: sub || '',
+        homeX: home.x, homeY: home.y,
+        x: home.x + Math.cos(a) * 14, y: home.y + Math.sin(a) * 14,
+        vx: 0, vy: 0, tx: home.x, ty: home.y,
         state: 'spawning', stateT: 0,
         hue: f.hue, carry: null, parent: null, tool: null, facing: 1,
         born: this.time, lastActive: this.time, alert: 0, scale: 0.1,
@@ -244,16 +278,15 @@
       return u;
     }
 
-    workerFor(f, sessionId) {
+    workerFor(f, sessionId, sub) {
       if (!sessionId) {
-        // fall back to any live worker of this faction
         for (const u of this.units.values()) if (u.factionKey === f.key && u.kind === 'worker' && !u.dead) return u;
-        return this.spawnWorker(f, 'anon-' + UID);
+        return this.spawnWorker(f, 'anon-' + UID, sub);
       }
       const id = this.unitsBySession.get(sessionId);
       const u = id && this.units.get(id);
       if (u && !u.dead) return u;
-      return this.spawnWorker(f, sessionId);
+      return this.spawnWorker(f, sessionId, sub);
     }
 
     spawnDrone(f, parent, kind) {
@@ -303,19 +336,19 @@
 
       switch (n.event) {
         case 'SessionStart': {
-          const u = this.workerFor(f, n.sessionId);
+          const u = this.workerFor(f, n.sessionId, n.sub);
           u.state = 'spawning'; u.stateT = 0;
           this.log(`▲ ${short} — a worker awakens`, f.hue);
           break;
         }
         case 'UserPromptSubmit': {
-          const u = this.workerFor(f, n.sessionId);
+          const u = this.workerFor(f, n.sessionId, n.sub);
           u.alert = 1; u.lastActive = this.time;
           this.floater(u.x, u.y - 18, '!', 45);
           break;
         }
         case 'PreToolUse': {
-          const u = this.workerFor(f, n.sessionId);
+          const u = this.workerFor(f, n.sessionId, n.sub);
           u.lastActive = this.time;
           u.tool = n.tool; u.actions++; u.turnWork = (u.turnWork || 0) + 1;
           if (u.actions >= 12 && !u.veteran) u.veteran = true;
@@ -333,7 +366,7 @@
           break;
         }
         case 'PostToolUse': {
-          const u = this.workerFor(f, n.sessionId);
+          const u = this.workerFor(f, n.sessionId, n.sub);
           u.lastActive = this.time;
           if (n.isError) {
             u.state = 'stumble'; u.stateT = 0;
@@ -357,7 +390,7 @@
           break;
         }
         case 'Stop': {
-          const u = this.workerFor(f, n.sessionId);
+          const u = this.workerFor(f, n.sessionId, n.sub);
           u.state = 'returning'; u.stateT = 0; u.tx = f.x; u.ty = f.y; u.rest = true;
           this.floater(f.x, f.y - 30, '✓', f.hue);
           // The Stop-Beat: the town exhales — a warm bloom scaled by how much real
@@ -534,16 +567,19 @@
     }
 
     pickIdleTarget(u, f) {
-      const a = rnd(0, TAU), r = rnd(40, 110);
-      u.tx = f.x + Math.cos(a) * r; u.ty = f.y + Math.sin(a) * r; u.stateT = 0;
+      // idle near home (satellite or capital), not always the capital center
+      const hx = u.homeX != null ? u.homeX : f.x, hy = u.homeY != null ? u.homeY : f.y;
+      const a = rnd(0, TAU), r = rnd(18, 60);
+      u.tx = hx + Math.cos(a) * r; u.ty = hy + Math.sin(a) * r; u.stateT = 0;
     }
 
-    // World bounds for camera framing.
+    // World bounds for camera framing (includes each tribe's satellites).
     bounds() {
       let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
       for (const f of this.factions.values()) {
-        minx = Math.min(minx, f.x - 320); miny = Math.min(miny, f.y - 320);
-        maxx = Math.max(maxx, f.x + 320); maxy = Math.max(maxy, f.y + 320);
+        const r = (f.town && f.town.radius ? f.town.radius : 300) + 40;
+        minx = Math.min(minx, f.x - r); miny = Math.min(miny, f.y - r);
+        maxx = Math.max(maxx, f.x + r); maxy = Math.max(maxy, f.y + r);
       }
       if (minx > maxx) { minx = 0; miny = 0; maxx = 1280; maxy = 800; }
       return { minx, miny, maxx, maxy };

@@ -294,6 +294,38 @@
     else A.rock(ctx, f.x + p.x, f.y + p.y, p.s, L);
   }
 
+  // roads from the capital out to each subfolder satellite (drawn at ground level)
+  function drawSatellitePaths(ctx, f, env) {
+    const L = env._L, t = f.town; if (!t || !t.satellites || !t.satellites.length) return;
+    ctx.lineCap = 'round';
+    for (const sat of t.satellites) {
+      ctx.strokeStyle = A.css(A.shade([116, 92, 60], (L.ambient - 1) * 0.4), 0.5);
+      ctx.lineWidth = 5 + sat.tier * 1.5;
+      ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x + sat.x, f.y + sat.y); ctx.stroke();
+    }
+  }
+
+  // a satellite settlement: a subfolder rendered as a small hamlet extension of
+  // the capital, joined by a road and flying the tribe's banner.
+  const SAT_ROOFS = ['thatch', 'terracotta', 'tile'];
+  function drawSatellite(ctx, f, sat, env) {
+    const L = env._L, bx = f.x + sat.x, by = f.y + sat.y, pr = sat.tier * 8 + 24;
+    ctx.fillStyle = A.css(A.shade(A.hslArr(36, 22, 32), (L.ambient - 1) * 0.5), 0.45);
+    ctx.beginPath(); ctx.ellipse(bx, by, pr, pr * 0.68, 0, 0, TAU); ctx.fill();
+    const huts = sat.huts.slice().sort((a, b) => a.y - b.y);
+    for (const h of huts) { const roof = A.ROOFS[SAT_ROOFS[(h.seed | 0) % 3]]; A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h, h.h * 0.7, (h.seed & 1) ? A.WALLS.plaster : A.WALLS.timber, roof, L, { windows: true }); }
+    const mtop = A.cyl(ctx, bx, by - 4, 3, 13 + sat.tier * 4, A.WALLS.stone, L, {});
+    A.banner(ctx, bx + 2, mtop[1] + 2, 8, f.hue, env.time + sat.ang, L, f._vit);
+    if (env.cam.zoom > 0.95) {
+      const nm = sat.name.length > 16 ? sat.name.slice(0, 15) + '…' : sat.name;
+      ctx.font = '600 9px ui-sans-serif,system-ui'; const tw = ctx.measureText(nm).width;
+      const ly = by + pr * 0.68 + 9;
+      ctx.fillStyle = 'rgba(8,11,16,0.5)'; U.roundRect(ctx, bx - tw / 2 - 4, ly - 8, tw + 8, 12, 4); ctx.fill();
+      ctx.fillStyle = A.css(A.hslArr(f.hue, 40, 74)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(nm, bx, ly - 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+
   // a player-planted Folk-Drop: a sapling that grows into a grove, fed by the
   // town's real Stop-Beats. A cultivated stake marks it as deliberately placed.
   function drawDrop(ctx, f, dp, env) {
@@ -416,12 +448,13 @@
   function dormancyVeil(ctx, f) {
     const t = f.town, vit = f._vit; if (vit > 0.93) return;
     const d = 1 - vit;
-    const g = ctx.createRadialGradient(f.x, f.y, t.territory * 0.2, f.x, f.y, t.territory);
+    const R = (t.radius || t.territory);
+    const g = ctx.createRadialGradient(f.x, f.y, R * 0.15, f.x, f.y, R);
     g.addColorStop(0, A.rgb(58, 78, 92, d * 0.30));          // cool teal core
     g.addColorStop(0.7, A.rgb(40, 54, 74, d * 0.40));        // deep dusk blue
     g.addColorStop(1, A.rgb(70, 52, 60, d * 0.30));          // faint amber edge
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.ellipse(f.x, f.y, t.territory * 0.98, t.territory * 0.82, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, R * 1.02, R * 0.86, 0, 0, TAU); ctx.fill();
     // a couple of lonely amber window-lights still burning
     if (d > 0.4) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, f.x + 6, f.y - 4, 10, A.rgb(255, 190, 110, d * 0.18)); ctx.restore(); }
   }
@@ -478,15 +511,18 @@
       f._vit += (target - f._vit) * 0.05;
     }
 
-    // pass 1: ground-level (roads between towns, territory, walls)
+    // pass 1: ground-level (roads between towns, satellite roads, territory, walls)
     drawRoads(ctx, sim, env);
     for (const f of facs) drawTerritory(ctx, f, env);
+    if (!far) for (const f of facs) drawSatellitePaths(ctx, f, env);
     for (const f of facs) { if (!far && f.town && f.town.hasWall) drawWall(ctx, f, env); }
 
     // pass 2: per town, depth-sort structures + units
     for (const f of facs) {
       const t = f.town; if (!t) continue;
       if (far) {
+        // satellite dots first (under the capital)
+        if (t.satellites) { ctx.fillStyle = A.css(A.hslArr(f.hue, 30, 40), 0.5); for (const sat of t.satellites) ctx.fillRect(f.x + sat.x - 1.5, f.y + sat.y - 1.5, 3, 3); }
         drawKeep(ctx, f, env);
         ctx.fillStyle = A.css(A.hslArr(f.hue, 35, 42), 0.45);
         for (const h of t.houses) ctx.fillRect(f.x + h.x - 1, f.y + h.y - 1, 2, 2);
@@ -495,6 +531,7 @@
       }
       const draw = [];
       for (const p of t.props) draw.push({ y: f.y + p.y, fn: () => drawProp(ctx, f, p, env) });
+      if (t.satellites) for (const sat of t.satellites) draw.push({ y: f.y + sat.y, fn: () => drawSatellite(ctx, f, sat, env) });
       if (f.drops) for (const dp of f.drops) draw.push({ y: f.y + dp.y, fn: () => drawDrop(ctx, f, dp, env) });
       for (const h of t.houses) draw.push({ y: f.y + h.y, fn: () => drawHouse(ctx, f, h, env) });
       for (const b of t.buildings) draw.push({ y: f.y + b.y, fn: () => drawBuilding(ctx, f, b, env) });

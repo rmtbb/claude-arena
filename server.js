@@ -108,6 +108,9 @@ function normalize(line) {
   const event = ev.hook_event_name || ev.event || ev.eventName || 'Unknown';
   const cwd = ev.cwd || ev.project_dir || ev.workingDirectory || null;
   const proj = deriveProject(cwd);
+  // sub = path of this session within the project ('' = the main folder). Each
+  // distinct subfolder becomes a visible satellite settlement of the tribe.
+  const sub = (cwd && proj.key && cwd.startsWith(proj.key)) ? cwd.slice(proj.key.length).replace(/^\/+/, '') : '';
 
   const toolInput = ev.tool_input && typeof ev.tool_input === 'object' ? ev.tool_input : null;
 
@@ -124,6 +127,7 @@ function normalize(line) {
     sessionId: ev.session_id || ev.sessionId || null,
     projectKey: proj.key,
     projectName: proj.name,
+    sub,
     cwd,
     tool: ev.tool_name || (toolInput && toolInput.tool) || null,
     // For Task tool, surface the subagent type / description for nicer drones.
@@ -175,6 +179,7 @@ function ensureFaction(key, name) {
       preCompacts: 0,            // memory storms survived (milestone)
       toolCounts: {},            // per-tool lifetime counts → "skyline fingerprint"
       sessionsSeen: new Set(),
+      members: new Map(),        // subPath → satellite stats ('' = main folder)
     };
     factions.set(key, f);
   }
@@ -193,7 +198,15 @@ function applyToAggregate(n) {
     f.sessionsSeen.add(n.sessionId);
     f.totalSessions++;
   }
-  if (n.sessionId) sessions.set(n.sessionId, { projectKey: n.projectKey, lastSeen: n.ts });
+  if (n.sessionId) sessions.set(n.sessionId, { projectKey: n.projectKey, lastSeen: n.ts, sub: n.sub || '' });
+
+  // per-member (main folder + each subfolder) stats → satellite settlements
+  const subKey = n.sub || '';
+  let mem = f.members.get(subKey);
+  if (!mem) { mem = { sub: subKey, name: subKey ? prettifyName(subKey.split('/').filter(Boolean).pop()) : 'Main', tools: 0, sessions: 0, sessionsSet: new Set(), firstSeen: n.ts, lastSeen: n.ts }; f.members.set(subKey, mem); }
+  mem.lastSeen = n.ts;
+  if (n.sessionId && !mem.sessionsSet.has(n.sessionId)) { mem.sessionsSet.add(n.sessionId); mem.sessions++; }
+  if (n.event === 'PreToolUse') mem.tools++;
 
   if (n.event === 'PreToolUse') {
     f.totalTools++;
@@ -247,6 +260,12 @@ function factionView(f) {
     preCompacts: f.preCompacts || 0,
     toolCounts: f.toolCounts || {},
     liveSessions,
+    // subfolders as satellite extensions (excluding the main folder), biggest first
+    members: Array.from(f.members.values())
+      .filter((m) => m.sub)
+      .sort((a, b) => b.tools - a.tools)
+      .slice(0, 14)
+      .map((m) => ({ sub: m.sub, name: m.name, tools: m.tools, sessions: m.sessions, firstSeen: m.firstSeen, lastSeen: m.lastSeen })),
   };
 }
 
