@@ -14,6 +14,11 @@
   // faction roofs are slate that LEANS toward the tribe hue — identity without garishness
   const facRoof = (hue) => A.mix(A.ROOFS.slate, A.hslArr(hue, 48, 48), 0.5);
 
+  // structures RISE when first built — a satisfying spring-up over ~1.1s.
+  const GROW = 1.1;
+  function easeOutBack(t) { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+  function growF(born, env) { if (born == null) return 1; const age = env.time - born; if (age >= GROW || age < 0) return 1; return Math.max(0.04, easeOutBack(age / GROW)); }
+
   // frustum cull: is this town near enough the viewport to bother drawing?
   function onScreen(f, env) {
     const r = (f.town && f.town.radius ? f.town.radius : 320) + 50;
@@ -186,12 +191,14 @@
     const L = env._L;
     const roof = A.ROOFS[HOUSE_ROOFS[(h.seed | 0) % HOUSE_ROOFS.length]];
     const wall = (h.seed & 1) ? A.WALLS.plaster : A.WALLS.timber;
-    A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h, h.h * 0.7, wall, roof, L, { windows: true });
+    const g = growF(h.born, env);
+    A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h * g, h.h * 0.7 * g, wall, roof, L, { windows: true });
   }
 
   function drawBuilding(ctx, f, b, env) {
     const L = env._L, x = f.x + b.x, y = f.y + b.y;
     const active = (f.stations[b.station] && f.stations[b.station].pulse > 0);
+    b = Object.assign({}, b, { h: b.h * growF(b.born, env) });   // rise on construction
     switch (b.type) {
       case 'forge': {
         // industrial: dark stone, flat roof, glowing furnace; chimneys multiply
@@ -322,7 +329,7 @@
     ctx.fillStyle = A.css(A.shade(A.hslArr(36, 22, 32), (L.ambient - 1) * 0.5), 0.45);
     ctx.beginPath(); ctx.ellipse(bx, by, pr, pr * 0.68, 0, 0, TAU); ctx.fill();
     const huts = sat.huts.slice().sort((a, b) => a.y - b.y);
-    for (const h of huts) { const roof = A.ROOFS[SAT_ROOFS[(h.seed | 0) % 3]]; A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h, h.h * 0.7, (h.seed & 1) ? A.WALLS.plaster : A.WALLS.timber, roof, L, { windows: true }); }
+    for (const h of huts) { const roof = A.ROOFS[SAT_ROOFS[(h.seed | 0) % 3]]; const g = growF(h.born, env); A.gableBox(ctx, f.x + h.x, f.y + h.y, h.w, h.w * 0.8, h.h * g, h.h * 0.7 * g, (h.seed & 1) ? A.WALLS.plaster : A.WALLS.timber, roof, L, { windows: true }); }
     const mtop = A.cyl(ctx, bx, by - 4, 3, 13 + sat.tier * 4, A.WALLS.stone, L, {});
     A.banner(ctx, bx + 2, mtop[1] + 2, 8, f.hue, env.time + sat.ang, L, f._vit);
     if (env.cam.zoom > 0.95) {
@@ -502,6 +509,21 @@
     }
   }
 
+  // cross-project emissaries: scout (read), builder (edit), runner (bash)
+  function drawEmissaries(ctx, sim, env) {
+    for (const e of sim.emissaries) {
+      const x = e.x, y = e.y + Math.sin(e.wob) * 1.4, fc = e.facing || 1;
+      ctx.strokeStyle = A.css(A.hslArr(e.hue, 70, 60), 0.16); ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(e.hx, e.hy); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      U.glow(ctx, x, y, 9, A.hslArr(e.hue, 85, 62), A.rgb(255, 255, 255, 0.35));
+      ctx.restore();
+      ctx.fillStyle = A.css(A.hslArr(e.hue, 82, 72));
+      if (e.cat === 'scout') { ctx.beginPath(); ctx.moveTo(x + fc * 5, y); ctx.lineTo(x - fc * 4, y - 3); ctx.lineTo(x - fc * 4, y + 3); ctx.closePath(); ctx.fill(); }
+      else { ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 4); ctx.lineTo(x - 4, y); ctx.closePath(); ctx.fill(); }
+    }
+  }
+
   // ---- main ----------------------------------------------------------------
   function drawWorld(ctx, sim, env) {
     const L = env._L || (env._L = A.lighting());
@@ -568,6 +590,7 @@
     ctx.restore();
 
     drawEnvoys(ctx, sim, env);
+    drawEmissaries(ctx, sim, env);
 
     // fireflies drift around LIVING towns at night — a quiet sign of life
     if (L.lampGlow > 0.2) {

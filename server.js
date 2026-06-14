@@ -92,6 +92,22 @@ function deriveProject(cwd) {
   return { key: root, name: prettifyName(base), base };
 }
 
+// Pull candidate filesystem paths out of a tool_input so we can tell whether a
+// tool reached into another project. Absolute paths only; commands are scanned
+// heuristically. Used purely to resolve project identity (never forwarded raw).
+function extractPaths(ti) {
+  const out = [];
+  const add = (v) => { if (typeof v === 'string' && v.charAt(0) === '/') out.push(v); };
+  add(ti.file_path); add(ti.path); add(ti.notebook_path); add(ti.dir); add(ti.directory);
+  if (Array.isArray(ti.paths)) ti.paths.forEach(add);
+  if (Array.isArray(ti.file_paths)) ti.file_paths.forEach(add);
+  if (typeof ti.command === 'string') {
+    const m = ti.command.match(/(?:^|[\s'"=(])(\/[A-Za-z0-9._\-/]+)/g);
+    if (m) m.forEach((s) => add(s.replace(/^[\s'"=(]/, '')));
+  }
+  return out.slice(0, 24);
+}
+
 // ---------------------------------------------------------------------------
 // Normalization — schema-agnostic. We read whatever fields are present and fall
 // back gracefully so a wrong/renamed field can never crash the pipeline.
@@ -121,6 +137,19 @@ function normalize(line) {
   if (typeof rawOut === 'string' && /^error[:\s]|\berror\b.*\b(failed|exception)\b/i.test(rawOut)) isError = true;
   if (rawOut && typeof rawOut === 'object' && (rawOut.is_error || rawOut.error)) isError = true;
 
+  // Cross-project interaction: which OTHER project roots did this tool touch?
+  // We resolve file paths to project roots here (server-side, localhost) and only
+  // ever forward the project *identity* to the browser — never the raw path.
+  let touched = null;
+  if (event === 'PreToolUse' && toolInput) {
+    const roots = new Set();
+    for (const pth of extractPaths(toolInput)) {
+      const r = findProjectRoot(pth);
+      if (r && r !== proj.key) roots.add(r);
+    }
+    if (roots.size) touched = Array.from(roots);
+  }
+
   return {
     ts: tSec * 1000,
     event,
@@ -129,6 +158,7 @@ function normalize(line) {
     projectName: proj.name,
     sub,
     cwd,
+    touched, // raw cross-project roots; ingest() filters these to existing tribes
     tool: ev.tool_name || (toolInput && toolInput.tool) || null,
     // For Task tool, surface the subagent type / description for nicer drones.
     subagentType:
@@ -293,6 +323,13 @@ function broadcast(n) {
 function ingest(n) {
   if (!n) return;
   applyToAggregate(n);
+  // resolve cross-project touches to EXISTING tribes only, forward just identity
+  if (n.touched) {
+    const t = [];
+    for (const k of n.touched) { const f = factions.get(k); if (f && k !== n.projectKey) t.push({ key: k, name: f.name }); }
+    delete n.touched;
+    if (t.length) n.touches = t;
+  }
   pushRecent(n);
   broadcast(n);
 }

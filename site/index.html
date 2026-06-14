@@ -171,7 +171,7 @@
    (lifetime tribe stats · eras)            (sim + procedural renderer · all canvas)</pre>
     <div class="privacy">
       <h3>🔒 Private by construction</h3>
-      <p>The server binds to <code>127.0.0.1</code> only. The browser is told <b>that</b> something happened — event type, project name, tool name — but never <b>what</b>. Your prompt text and tool output never leave the server. Nothing is sent anywhere; there's no analytics. The arena genuinely doesn't need to know what you're working on to draw a fish.</p>
+      <p>The server binds to <code>127.0.0.1</code> only. The browser is told <b>that</b> something happened — event type, project name, tool name, and which projects interacted — but never the <b>file paths</b>, <b>prompt text</b>, or <b>tool output</b>. Paths are resolved to a project identity on the server and never leave it. Nothing is sent anywhere; there's no analytics. The arena doesn't need to know what you're working on to draw your world.</p>
     </div>
   </div>
 </section>

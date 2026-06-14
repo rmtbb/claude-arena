@@ -142,6 +142,11 @@ It isn't a static diorama — it lives, and you can shape it:
 - **Inter-tribe action.** Work two projects in the same window and a **King's
   Highway** wears in between their towns — it accrues and deepens over time
   (desire-path → cobbled road) and **caravans** trundle along it on each Stop.
+- **Cross-project emissaries.** When a session *touches another project's files*
+  — reads its code, edits it, runs against it — an **emissary darts between the
+  towns**: a **scout** for a read, a **builder** for an edit, a **runner** for a
+  command. Real interactions between your projects, drawn live (the server
+  resolves the file path to a project and forwards only that identity).
 - **Plant things that grow from your work.** Hit **🌱 Plant**, click inside a
   town, and drop a sapling. It grows into a grove fed by that town's real
   Stop-Beats — a little life of its own, persisted across visits.
@@ -179,8 +184,11 @@ prettified — `my-cool-app` → "My Cool App"), give it a **motto**, and pick i
 ## Privacy (the short, honest version)
 
 - The server binds to **`127.0.0.1` only** by default. Your machine, your eyes.
-- The browser is told **that** things happened — event type, project, tool name —
-  but never **what**. Your prompt text and tool output **never leave the server**.
+- The browser is told **that** things happened — event type, project, tool name,
+  and **which projects interacted** (when a tool touches another project's files,
+  it learns the other project's *identity*) — but never the **file paths**, the
+  **prompt text**, or the **tool output**. Those are resolved on the server (to
+  figure out which project a path belongs to) and **never leave it**.
 - Nothing is sent anywhere. No analytics. Only localhost ↔ your browser.
 
 Want to watch from your phone on the same LAN? `CLAUDE_ARENA_HOST=0.0.0.0` and

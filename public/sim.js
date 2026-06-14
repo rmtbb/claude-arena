@@ -42,6 +42,31 @@
       this.envoys = [];                // caravans traveling between co-active towns
       this.roads = new Map();          // "keyA|keyB" -> { a, b, wear, active }
       this._envoyT = 4;
+      this.emissaries = [];            // cross-project agents (a session touched another project's files)
+    }
+
+    // a session reached into ANOTHER project's files → send an emissary there,
+    // themed by what it did. Reinforces the road between the two towns.
+    spawnEmissary(a, b, cat) {
+      if (this.emissaries.length > 16 || a === b) return;
+      const key = [a.key, b.key].sort().join('|');
+      let road = this.roads.get(key);
+      if (!road) { road = { a: a.key, b: b.key, wear: 0, active: true }; this.roads.set(key, road); }
+      road.wear = Math.min(1, road.wear + 0.05);
+      const hue = cat === 'scout' ? 190 : cat === 'build' ? 140 : 38;
+      this.emissaries.push({ x: a.x, y: a.y - 8, tx: b.x, ty: b.y - 8, hx: a.x, hy: a.y - 8, cat, hue, t: 0, returning: false, wob: Math.random() * 6 });
+      const verb = cat === 'scout' ? 'scouts' : cat === 'build' ? 'works in' : 'reaches into';
+      this.log(`⟿ ${a.name} ${verb} ${b.name}`, hue);
+    }
+    updateEmissaries(dt) {
+      for (let i = this.emissaries.length - 1; i >= 0; i--) {
+        const e = this.emissaries[i]; e.t += dt; e.wob += dt * 8;
+        const dx = e.tx - e.x, dy = e.ty - e.y, d = Math.hypot(dx, dy) || 1;
+        if (d > 4) { e.x += dx / d * 165 * dt; e.y += dy / d * 165 * dt; e.facing = dx >= 0 ? 1 : -1; }
+        else if (!e.returning) { e.returning = true; this.burst(e.x, e.y + 8, e.hue, 8, e.cat === 'scout' ? 'spark' : 'deposit'); e.tx = e.hx; e.ty = e.hy; }
+        else { this.emissaries.splice(i, 1); }
+        if (e.t > 24) this.emissaries.splice(i, 1);
+      }
     }
 
     // ---- inter-tribe action: envoys between towns that are BOTH live now ----
@@ -169,6 +194,11 @@
       const memSig = members.map((m) => m.sub + ':' + (m.tools < 30 ? 0 : m.tools < 150 ? 1 : 2)).join(',');
       const sig = `${era}|${(f.fingerprint || {}).dominant}|${houseCount}|${Math.round(wallR)}|${f.gilded ? 1 : 0}|${memSig}`;
       if (f._townSig === sig && f.town) return;
+      const prev = f.town;                                  // carry structure "birth" times so only NEW things rise
+      const firstBuild = !prev;
+      const wallSame = prev && Math.round(prev.wallR) === Math.round(wallR);
+      const now = this.time;
+      const bornOf = (arr, i) => (wallSame && arr && arr[i]) ? arr[i].born : now;
       f._townSig = sig;
 
       const seed = A.hash(f.key);
@@ -181,10 +211,10 @@
         { type: 'wargate', station: 'expedition', ang: Math.PI / 2, w: 30, d: 14, h: 24, onWall: true, emph: fp.wargate || 0 },
         { type: 'barracks', station: 'spawn', ang: 2.9, w: 34 * wf('barracks'), d: 18, h: 15, emph: fp.barracks || 0 },
       ];
-      const buildings = defs.map((b) => {
+      const buildings = defs.map((b, idx) => {
         const rad = (b.onWall && hasWall) ? wallR : ringR;
         const x = Math.cos(b.ang) * rad, y = Math.sin(b.ang) * rad * 0.8;
-        return { ...b, x, y };
+        return { ...b, x, y, born: bornOf(prev && prev.buildings, idx) };
       });
       f.stations = {};
       for (const b of buildings) f.stations[b.station] = { x: f.x + b.x, y: f.y + b.y, type: b.station, pulse: 0 };
@@ -201,7 +231,10 @@
         if (Math.hypot(x, y) < 26) continue;
         if (buildings.some((b) => Math.hypot(b.x - x, b.y - y) < 24)) continue;
         if (houses.some((h) => Math.hypot(h.x - x, h.y - y) < 14)) continue;
-        houses.push({ x, y, w: 11 + (hr() * 5 | 0), h: 8 + (hr() * 6 | 0), roofHue: (hr() * 40 - 20), seed: hr() * 1000 });
+        const born = bornOf(prev && prev.houses, houses.length);
+        houses.push({ x, y, w: 11 + (hr() * 5 | 0), h: 8 + (hr() * 6 | 0), roofHue: (hr() * 40 - 20), seed: hr() * 1000, born });
+        // a fresh house raised since last build → puff of dust at its plot
+        if (!firstBuild && born === now) this.burst(f.x + x, f.y + y, 38, 5, 'deposit');
       }
       const gates = [Math.PI / 2, -2.3, 0.5].map((a) => ({ x: Math.cos(a) * wallR, y: Math.sin(a) * wallR * 0.8, ang: a }));
       const props = [];
@@ -227,9 +260,12 @@
         const sx = Math.cos(ang) * r, sy = Math.sin(ang) * r * 0.82;
         const huts = 1 + tier + Math.min(4, Math.floor(m.tools / 50));
         const hutList = [];
+        const prevSat = prev && prev.satellites && prev.satellites.find((s) => s.sub === m.sub);
+        const sborn = prevSat ? prevSat.born : now;
         const hr = A.mulberry(mh);
-        for (let q = 0; q < huts; q++) { const a = hr() * A.TAU, d = 6 + hr() * (10 + tier * 6); hutList.push({ x: sx + Math.cos(a) * d, y: sy + Math.sin(a) * d * 0.8, w: 9 + (hr() * 4 | 0), h: 7 + (hr() * 4 | 0), seed: hr() * 1000, roofHue: hr() * 30 - 15 }); }
-        satellites.push({ sub: m.sub, name: m.name, x: sx, y: sy, tier, tools: m.tools, lastSeen: m.lastSeen, huts: hutList, ang });
+        for (let q = 0; q < huts; q++) { const a = hr() * A.TAU, d = 6 + hr() * (10 + tier * 6); const hb = (prevSat && prevSat.huts && prevSat.huts[q]) ? prevSat.huts[q].born : now; hutList.push({ x: sx + Math.cos(a) * d, y: sy + Math.sin(a) * d * 0.8, w: 9 + (hr() * 4 | 0), h: 7 + (hr() * 4 | 0), seed: hr() * 1000, roofHue: hr() * 30 - 15, born: hb }); }
+        satellites.push({ sub: m.sub, name: m.name, x: sx, y: sy, tier, tools: m.tools, lastSeen: m.lastSeen, huts: hutList, ang, born: sborn });
+        if (!firstBuild && sborn === now) { this.burst(f.x + sx, f.y + sy, f.hue, 8, 'spawn'); this.log(`⌂ ${f.name} — district ${m.name} rises`, f.hue); }
         satMax = Math.max(satMax, r + 30);
       });
 
@@ -352,6 +388,11 @@
           u.lastActive = this.time;
           u.tool = n.tool; u.actions++; u.turnWork = (u.turnWork || 0) + 1;
           if (u.actions >= 12 && !u.veteran) u.veteran = true;
+          // cross-project interaction: this tool touched another project's files
+          if (n.touches && n.touches.length) {
+            const cat = /^(Read|Grep|Glob)$/.test(n.tool) ? 'scout' : /^(Edit|Write|NotebookEdit|MultiEdit)$/.test(n.tool) ? 'build' : 'reach';
+            for (const t of n.touches) { const tf = this.factions.get(t.key); if (tf) this.spawnEmissary(f, tf, cat); }
+          }
           const st = TOOL_STATION[n.tool] || 'mineral';
           if (st === 'spawn') {
             const d = this.spawnDrone(f, u, n.subagentType);
@@ -427,6 +468,7 @@
     update(dt) {
       this.time += dt;
       this.updateEnvoys(dt);
+      this.updateEmissaries(dt);
 
       for (const f of this.factions.values()) {
         f.beacon = Math.max(0, f.beacon - dt);
