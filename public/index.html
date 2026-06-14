@@ -29,16 +29,37 @@
     <div class="stat"><div class="num" id="hud-drones">0</div><div class="lbl">subagents</div></div>
   </div>
 
-  <!-- skin switcher -->
-  <div id="skins"></div>
+  <!-- help / legend toggle -->
+  <button id="btn-help" title="What am I looking at?">?</button>
+  <aside id="legend">
+    <div class="lg-head">How to read your arena <button id="lg-close" class="x">✕</button></div>
+    <div class="lg-row"><span class="lg-ic">🏰</span><b>Each town is a project.</b> It grows from your real work — Outpost → Hamlet → Walled Town → Citadel → Capital.</div>
+    <div class="lg-row"><span class="lg-ic">🚶</span><b>Each worker is a session.</b> Named, and the busy ones become veterans (★).</div>
+    <div class="lg-row"><span class="lg-ic">🛸</span><b>Each drone is a subagent</b>, tethered to the worker that launched it.</div>
+    <div class="lg-row"><span class="lg-ic">🏘️</span><b>Subfolders are districts</b> — satellite hamlets ringing the capital.</div>
+    <div class="lg-row"><span class="lg-ic">🔨</span><b>Tools build the town:</b> Bash→forge · Edit→workshop · Read→watchtower · Web→war-gate · Task→barracks.</div>
+    <div class="lg-row"><span class="lg-ic">🛣️</span><b>Roads</b> wear in between projects you work in the same sitting.</div>
+    <div class="lg-row"><span class="lg-ic">🌙</span><b>It's alive:</b> day/night follows your clock, quiet towns dim, and finishing a turn makes a town glow.</div>
+  </aside>
+
+  <!-- first-run welcome (only while the world is empty) -->
+  <div id="welcome">
+    <div class="wc-card">
+      <div class="wc-logo">⚔</div>
+      <h1>Your projects, as a living world.</h1>
+      <p>Claude Arena grows a little medieval world from your real Claude&nbsp;Code activity. Each project becomes a town, each session a worker, each subagent a drone — all built from the work you actually do.</p>
+      <p class="wc-empty">Your arena is quiet right now. Open Claude Code in any project to summon your first tribe — or take a look around with a demo.</p>
+      <button id="wc-demo" class="wc-btn">✦ Preview with a demo</button>
+      <div class="wc-foot">It updates itself as you work. Leave it open and check back.</div>
+    </div>
+  </div>
 
   <!-- toolbar -->
   <div id="toolbar">
-    <button id="btn-frame" title="Frame all (R)">⤢ Frame</button>
-    <button id="btn-plant" title="Plant a sapling in a town — it grows as the project works">🌱 Plant</button>
-    <button id="btn-history" title="Watch the whole history as a time-lapse">⏳ History</button>
-    <button id="btn-demo" title="Inject a burst of demo life">✦ Demo</button>
-    <button id="btn-shot" title="Save a postcard">⤓ Shot</button>
+    <button id="btn-frame" title="Frame the whole map (R)"><span>⤢</span> Overview</button>
+    <button id="btn-plant" title="Plant a sapling in a town — it grows as the project works"><span>🌱</span> Plant</button>
+    <button id="btn-history" title="Watch the whole history as a time-lapse"><span>⏳</span> History</button>
+    <button id="btn-shot" title="Save a shareable postcard"><span>⤓</span> Postcard</button>
   </div>
 
   <!-- time-lapse replay controls -->

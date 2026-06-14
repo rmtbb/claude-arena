@@ -14,6 +14,15 @@
   // faction roofs are slate that LEANS toward the tribe hue — identity without garishness
   const facRoof = (hue) => A.mix(A.ROOFS.slate, A.hslArr(hue, 48, 48), 0.5);
 
+  // frustum cull: is this town near enough the viewport to bother drawing?
+  function onScreen(f, env) {
+    const r = (f.town && f.town.radius ? f.town.radius : 320) + 50;
+    const sx = (f.x - env.cam.x) * env.cam.zoom + env.w / 2;
+    const sy = (f.y - env.cam.y) * env.cam.zoom + env.h / 2;
+    const rr = r * env.cam.zoom;
+    return sx > -rr && sx < env.w + rr && sy > -rr && sy < env.h + rr;
+  }
+
   // ---- cached wild-ground tile --------------------------------------------
   let groundTile = null, groundPattern = null;
   function ensureGround(ctx) {
@@ -47,7 +56,7 @@
     const cell = 420;
     const x0 = Math.floor(tl.x / cell) - 1, x1 = Math.ceil(br.x / cell) + 1;
     const y0 = Math.floor(tl.y / cell) - 1, y1 = Math.ceil(br.y / cell) + 1;
-    if ((x1 - x0) * (y1 - y0) > 160) return;          // far zoom: skip detail
+    if ((x1 - x0) * (y1 - y0) > 700) return;          // extreme zoom-out: features are sub-pixel anyway
     for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) {
       const r = A.mulberry(A.hash(cx + '_' + cy));
       const type = r();
@@ -500,35 +509,25 @@
     drawGround(ctx, env);
     drawTerrainFeatures(ctx, sim, env);
 
-    const facs = Array.from(sim.factions.values()).sort((a, b) => a.y - b.y);
-    const far = env.cam.zoom < 0.42;
+    const all = Array.from(sim.factions.values()).sort((a, b) => a.y - b.y);
+    // ONE rendering at every zoom — no LOD pop-in. We just cull what's off-screen
+    // so the work stays bounded; everything visible is drawn the same way, scaled.
+    const facs = all.filter((f) => onScreen(f, env));
+    // group units by faction once (avoids scanning all units per town)
+    const unitsByFac = new Map();
+    for (const u of sim.units.values()) { if (u.dead) continue; let a = unitsByFac.get(u.factionKey); if (!a) { a = []; unitsByFac.set(u.factionKey, a); } a.push(u); }
 
-    // per-frame: ease each town's displayed vitality toward its true value so a
-    // revived town visibly "floods" back to life over ~1.5s.
-    for (const f of facs) {
-      const target = Arena.lore.vitality(f);
-      if (f._vit == null) f._vit = target;
-      f._vit += (target - f._vit) * 0.05;
-    }
+    for (const f of all) { const target = Arena.lore.vitality(f); if (f._vit == null) f._vit = target; f._vit += (target - f._vit) * 0.05; }
 
-    // pass 1: ground-level (roads between towns, satellite roads, territory, walls)
+    // pass 1: ground (roads, satellite roads, territory, walls)
     drawRoads(ctx, sim, env);
     for (const f of facs) drawTerritory(ctx, f, env);
-    if (!far) for (const f of facs) drawSatellitePaths(ctx, f, env);
-    for (const f of facs) { if (!far && f.town && f.town.hasWall) drawWall(ctx, f, env); }
+    for (const f of facs) drawSatellitePaths(ctx, f, env);
+    for (const f of facs) { if (f.town && f.town.hasWall) drawWall(ctx, f, env); }
 
-    // pass 2: per town, depth-sort structures + units
+    // pass 2: per town, depth-sort structures + units (full detail at all zooms)
     for (const f of facs) {
       const t = f.town; if (!t) continue;
-      if (far) {
-        // satellite dots first (under the capital)
-        if (t.satellites) { ctx.fillStyle = A.css(A.hslArr(f.hue, 30, 40), 0.5); for (const sat of t.satellites) ctx.fillRect(f.x + sat.x - 1.5, f.y + sat.y - 1.5, 3, 3); }
-        drawKeep(ctx, f, env);
-        ctx.fillStyle = A.css(A.hslArr(f.hue, 35, 42), 0.45);
-        for (const h of t.houses) ctx.fillRect(f.x + h.x - 1, f.y + h.y - 1, 2, 2);
-        dormancyVeil(ctx, f);
-        continue;
-      }
       const draw = [];
       for (const p of t.props) draw.push({ y: f.y + p.y, fn: () => drawProp(ctx, f, p, env) });
       if (t.satellites) for (const sat of t.satellites) draw.push({ y: f.y + sat.y, fn: () => drawSatellite(ctx, f, sat, env) });
@@ -537,8 +536,7 @@
       for (const b of t.buildings) draw.push({ y: f.y + b.y, fn: () => drawBuilding(ctx, f, b, env) });
       draw.push({ y: f.y - 1, fn: () => drawKeep(ctx, f, env) });
       draw.push({ y: f.y + t.chronicle.y, fn: () => drawChronicle(ctx, f, env) });
-      for (const u of sim.units.values()) {
-        if (u.factionKey !== f.key || u.dead) continue;
+      for (const u of (unitsByFac.get(f.key) || [])) {
         const yy = u.kind === 'drone' ? u.y - 10 : u.y;
         draw.push({ y: yy, fn: () => (u.kind === 'drone' ? drawDrone(ctx, u, f, env) : drawWorker(ctx, u, f, env)) });
       }
@@ -558,7 +556,7 @@
     // chimney/forge smoke — only from living towns; stronger on active harvest
     ctx.save();
     for (const f of facs) {
-      if (far || !f.town || (f._vit || 0) < 0.7) continue;
+      if (!f.town || (f._vit || 0) < 0.7) continue;
       const fb = f.town.buildings.find((b) => b.type === 'forge');
       const st = f.stations && f.stations.gas;
       if (!fb) continue;
@@ -572,7 +570,7 @@
     drawEnvoys(ctx, sim, env);
 
     // fireflies drift around LIVING towns at night — a quiet sign of life
-    if (L.lampGlow > 0.2 && !far) {
+    if (L.lampGlow > 0.2) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       for (const f of facs) {
         if (!f.town || (f._vit || 0) < 0.5) continue;
@@ -601,43 +599,27 @@
       ctx.beginPath(); ctx.ellipse(f.x, f.y, rr, rr * 0.8, 0, 0, TAU); ctx.stroke();
     }
 
-    if (!far) drawLabels(ctx, facs, env);
-    else drawOverviewLabels(ctx, facs, env);
+    drawLabels(ctx, facs, env);
   }
 
+  // labels drawn in SCREEN space → identical, readable size at every zoom level
   function drawLabels(ctx, facs, env) {
+    const z = env.cam.zoom, DPR = env.DPR || 1;
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.textBaseline = 'middle';
     for (const f of facs) {
       const t = f.town; if (!t) continue;
-      const y = f.y + t.territory * 0.82 + 16;
-      ctx.font = '700 14px ui-sans-serif,system-ui,sans-serif';
-      const tw = ctx.measureText(f.name).width;
-      ctx.fillStyle = 'rgba(8,12,16,0.62)';
-      U.roundRect(ctx, f.x - tw / 2 - 12, y - 13, tw + 24, 24, 6); ctx.fill();
-      // live/idle state pip
-      ctx.fillStyle = A.css(stateColor(f)); ctx.beginPath(); ctx.arc(f.x - tw / 2 - 6, y - 1, 3, 0, TAU); ctx.fill();
-      ctx.fillStyle = A.css(A.hslArr(f.hue, 60, 82)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(f.name, f.x, y - 1);
-      ctx.font = '600 9px ui-monospace,monospace'; ctx.fillStyle = A.rgb(165, 182, 202, 0.85);
-      ctx.fillText(`${f.eraName || 'Outpost'}  ·  ⌂ ${t.houses.length}  ·  ${Arena.lore.idleLabel(f)}`, f.x, y + 12);
-      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    }
-  }
-
-  // overview: every town gets a name + state ring so the strategic map is legible
-  function drawOverviewLabels(ctx, facs, env) {
-    for (const f of facs) {
-      const t = f.town; if (!t) continue;
-      const r = t.territory * 0.5;
-      // state ring under the disc
-      ctx.strokeStyle = A.css(stateColor(f), 0.8); ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.ellipse(f.x, f.y + 4, r, r * 0.5, 0, 0, TAU); ctx.stroke();
-      const y = f.y + r * 0.5 + 18;
+      const sx = (f.x - env.cam.x) * z + env.w / 2;
+      const sy = (f.y - env.cam.y) * z + env.h / 2 + (t.territory * 0.82) * z + 13;
       ctx.font = '700 13px ui-sans-serif,system-ui,sans-serif';
       const tw = ctx.measureText(f.name).width;
-      ctx.fillStyle = 'rgba(8,12,16,0.6)'; U.roundRect(ctx, f.x - tw / 2 - 8, y - 11, tw + 16, 19, 5); ctx.fill();
-      ctx.fillStyle = A.css(A.hslArr(f.hue, 60, 82)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(f.name, f.x, y - 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(8,12,16,0.62)'; U.roundRect(ctx, sx - tw / 2 - 13, sy - 12, tw + 26, 30, 7); ctx.fill();
+      ctx.fillStyle = A.css(stateColor(f)); ctx.beginPath(); ctx.arc(sx - tw / 2 - 6, sy - 3, 3, 0, TAU); ctx.fill();
+      ctx.fillStyle = A.css(A.hslArr(f.hue, 58, 82)); ctx.textAlign = 'center';
+      ctx.fillText(f.name, sx, sy - 3);
+      ctx.font = '600 9px ui-monospace,monospace'; ctx.fillStyle = A.rgb(170, 186, 205, 0.85);
+      ctx.fillText(`${f.eraName || 'Outpost'}  ·  ⌂ ${t.houses.length}  ·  ${Arena.lore.idleLabel(f)}`, sx, sy + 9);
     }
+    ctx.textAlign = 'left'; ctx.restore();
   }
   function stateColor(f) {
     const v = f._vit == null ? Arena.lore.vitality(f) : f._vit;

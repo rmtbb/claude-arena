@@ -71,11 +71,9 @@
   canvas.addEventListener('touchmove', (e) => { const t = e.touches[0]; const dx = t.clientX - lastX, dy = t.clientY - lastY; moved += Math.abs(dx) + Math.abs(dy); cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; lastX = t.clientX; lastY = t.clientY; }, { passive: true });
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { autoFrame = true; fitView(false); }
-    if (e.key === ' ') { autoFrame = !autoFrame; }
-    const idx = ORDER.indexOf(current);
-    if (e.key === 'Tab') { e.preventDefault(); setRenderer(ORDER[(idx + 1) % ORDER.length]); }
-    if (e.key >= '1' && e.key <= '3') setRenderer(ORDER[+e.key - 1]);
+    if (e.key === 'r' || e.key === 'R') { autoFrame = true; lastFactionCount = -1; }
+    if (e.key === '?') document.getElementById('legend').classList.toggle('open');
+    if (e.key === 'Escape') { document.getElementById('legend').classList.remove('open'); closeCurate(); }
   });
 
   function handleClick(sx, sy) {
@@ -109,6 +107,7 @@
       });
       computeReturnBeat(s.factions || []);
       syncDrops();
+      stateLoaded = true;
       fitView(true);
       updateHud();
     } catch (e) { /* server may not be ready */ }
@@ -269,12 +268,17 @@
   let liveT = 0;
   function flashLive() { liveT = 1; }
 
+  let stateLoaded = false;
+  const welcomeEl = document.getElementById('welcome');
+  document.getElementById('wc-demo').onclick = () => { fetch('/api/demo', { method: 'POST' }).catch(() => {}); welcomeEl.classList.remove('show'); };
   function updateHud() {
     let units = 0, drones = 0;
     for (const u of sim.units.values()) { if (u.dead) continue; if (u.kind === 'drone') drones++; else units++; }
     elFactions.textContent = sim.factions.size;
     elUnits.textContent = units;
     elDrones.textContent = drones;
+    // first-run welcome only once we know the world is genuinely empty
+    welcomeEl.classList.toggle('show', stateLoaded && sim.factions.size === 0 && !replay);
   }
 
   let tickerLast = '';
@@ -284,26 +288,6 @@
     if (html !== tickerLast) { elTicker.innerHTML = html; tickerLast = html; }
   }
   function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
-
-  // ---- renderer switcher ---------------------------------------------------
-  function setRenderer(id) {
-    if (!Arena.renderers[id]) return;
-    current = id; localStorage.setItem('arena.renderer', id);
-    document.querySelectorAll('.skin-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === id));
-    document.body.dataset.skin = id;
-  }
-  function buildSwitcher() {
-    const host = document.getElementById('skins');
-    ORDER.forEach((id) => {
-      const r = Arena.renderers[id];
-      const b = document.createElement('button');
-      b.className = 'skin-btn'; b.dataset.id = id;
-      b.innerHTML = `<span class="emoji">${r.emoji}</span>${r.label}`;
-      b.onclick = () => setRenderer(id);
-      host.appendChild(b);
-    });
-    setRenderer(current);
-  }
 
   // ---- faction / town panel ------------------------------------------------
   const panel = document.getElementById('curate');
@@ -437,8 +421,9 @@
   };
 
   // ---- toolbar actions -----------------------------------------------------
-  document.getElementById('btn-frame').onclick = () => { autoFrame = true; fitView(false); };
-  document.getElementById('btn-demo').onclick = () => fetch('/api/demo', { method: 'POST' }).catch(() => {});
+  document.getElementById('btn-frame').onclick = () => { autoFrame = true; lastFactionCount = -1; };
+  document.getElementById('btn-help').onclick = () => document.getElementById('legend').classList.toggle('open');
+  document.getElementById('lg-close').onclick = () => document.getElementById('legend').classList.remove('open');
   document.getElementById('btn-shot').onclick = () => {
     const oc = document.createElement('canvas'); oc.width = canvas.width; oc.height = canvas.height;
     const o = oc.getContext('2d'); o.drawImage(canvas, 0, 0);
@@ -484,7 +469,7 @@
     elLive.style.opacity = 0.4 + liveT * 0.6;
 
     const r = Arena.renderers[current];
-    const env = { w: W, h: H, cam, time: sim.time, _s2w: screenToWorld, hoverId: hoverId };
+    const env = { w: W, h: H, cam, time: sim.time, _s2w: screenToWorld, hoverId: hoverId, DPR: DPR };
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     r.background(ctx, env);
@@ -504,7 +489,6 @@
   setInterval(updateHud, 500);
 
   // ---- go ------------------------------------------------------------------
-  buildSwitcher();
   buildCustomizer();
   loadState().then(() => connect());
   requestAnimationFrame(frame);

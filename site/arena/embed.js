@@ -118,7 +118,7 @@
     sim.update(dt);
     if (autoFrame) fitView(false);
     cam.x += (cam.tx - cam.x) * Math.min(1, dt * 4); cam.y += (cam.ty - cam.y) * Math.min(1, dt * 4); cam.zoom += (cam.tzoom - cam.zoom) * Math.min(1, dt * 4);
-    const r = Arena.renderers.rts; const env = { w: W, h: H, cam, time: sim.time, _s2w: s2w };
+    const r = Arena.renderers.rts; const env = { w: W, h: H, cam, time: sim.time, _s2w: s2w, DPR: DPR };
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     r.background(ctx, env);
     ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y);
