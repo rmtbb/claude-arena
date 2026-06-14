@@ -251,16 +251,17 @@
   }
 
   // --- props ----------------------------------------------------------------
-  function tree(ctx, x, y, s, L) {
+  function tree(ctx, x, y, s, L, time) {
     groundShadow(ctx, x, y, s * 1.2, s * 0.8, s * 1.6, L);
     const af = 0.42 + 0.58 * clamp(L.ambient, 0, 1);   // foliage dims at night
+    const sway = time ? Math.sin(time * 1.1 + x * 0.07) * s * 0.16 : 0;  // gentle wind
     ctx.fillStyle = css(shade([70, 55, 40], -0.1 - (1 - L.ambient) * 0.3));
     ctx.fillRect(x - s * 0.12, y - s * 0.2, s * 0.24, s * 0.7);
-    const top = lift(x, y, s * 1.5);
-    const g = ctx.createRadialGradient(top[0] - s * 0.3, top[1] - s * 0.3, s * 0.1, top[0], top[1], s * 1.1);
+    const top = lift(x, y, s * 1.5); const tx = top[0] + sway, ty = top[1];
+    const g = ctx.createRadialGradient(tx - s * 0.3, ty - s * 0.3, s * 0.1, tx, ty, s * 1.1);
     g.addColorStop(0, css(shade(hslArr(110, 35, 38 * af), 0.14 * L.ambient)));
     g.addColorStop(1, css(shade(hslArr(120, 40, 24 * af), -0.05)));
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(top[0], top[1], s, 0, TAU); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(tx, ty, s, 0, TAU); ctx.fill();
   }
   function rock(ctx, x, y, s, L) {
     groundShadow(ctx, x, y, s * 1.6, s, s * 0.7, L);

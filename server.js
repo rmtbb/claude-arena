@@ -492,8 +492,11 @@ const server = http.createServer(async (req, res) => {
     for (let i = start; i < lines.length; i++) {
       const ln = lines[i]; if (!ln.trim()) continue;
       const n = normalize(ln); if (!n || !n.projectKey) continue;
-      // compact tuple: [ts, event, projectKey, projectName, tool, sessionId, isError, subagentType]
-      out.push([n.ts, n.event, n.projectKey, n.projectName, n.tool || 0, n.sessionId || 0, n.isError ? 1 : 0, n.subagentType || 0]);
+      // only forward touched roots that are REAL tribes (never raw file paths)
+      let touch = 0;
+      if (n.touched) { const t = n.touched.filter((k) => factions.has(k) && k !== n.projectKey); if (t.length) touch = t; }
+      // compact tuple: [ts, event, projectKey, projectName, tool, sessionId, isError, subagentType, touchedRoots]
+      out.push([n.ts, n.event, n.projectKey, n.projectName, n.tool || 0, n.sessionId || 0, n.isError ? 1 : 0, n.subagentType || 0, touch]);
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ events: out, count: out.length, from: out.length ? out[0][0] : 0, to: out.length ? out[out.length - 1][0] : 0 }));

@@ -43,6 +43,27 @@
       this.roads = new Map();          // "keyA|keyB" -> { a, b, wear, active }
       this._envoyT = 4;
       this.emissaries = [];            // cross-project agents (a session touched another project's files)
+      this.coins = [];                 // resource coins arcing to the keep coffer
+    }
+
+    // a coin of harvested work arcs from (x,y) up and into the town's coffer
+    spawnCoin(x, y, f) {
+      if (this.coins.length > 120) return;
+      this.coins.push({ x, y, sx: x, sy: y, tx: f.x, ty: f.y - 6, t: 0, dur: 0.55 + Math.random() * 0.35, hue: 46 + Math.random() * 8, lift: 16 + Math.random() * 14, fkey: f.key });
+    }
+    updateCoins(dt) {
+      for (let i = this.coins.length - 1; i >= 0; i--) {
+        const c = this.coins[i]; c.t += dt; const p = c.t / c.dur;
+        if (p >= 1) {
+          const f = this.factions.get(c.fkey);
+          this.burst(c.tx, c.ty, c.hue, 4, 'deposit');
+          if (f) f.coffer = Math.min(1.4, (f.coffer || 0) + 0.16);   // coffer visibly brims, then settles
+          this.coins.splice(i, 1); continue;
+        }
+        const e = p * p * (3 - 2 * p);
+        c.x = c.sx + (c.tx - c.sx) * e;
+        c.y = c.sy + (c.ty - c.sy) * e - Math.sin(p * Math.PI) * c.lift;  // parabolic arc
+      }
     }
 
     // a session reached into ANOTHER project's files → send an emissary there,
@@ -439,8 +460,11 @@
           const work = u.turnWork || 1; u.turnWork = 0;
           f.exhale = Math.min(1, 0.3 + work / 22);
           f.exhaleT = 2.6;
-          f.resources += Math.round(Math.pow(work, 0.85)); // banked work crystallizes
-          this.floater(f.x, f.y - 44, '+' + Math.round(Math.pow(work, 0.85)), 45);
+          const minted = Math.round(Math.pow(work, 0.85));
+          f.resources += minted; // banked work crystallizes
+          this.floater(f.x, f.y - 44, '+' + minted, 45);
+          // coins cascade from the finishing worker into the coffer
+          for (let c = 0; c < Math.min(14, 2 + minted); c++) this.spawnCoin(u.x + rnd(-6, 6), u.y + rnd(-4, 4), f);
           // pump that work down a road to a co-active neighbour
           const live = this.liveTowns().filter((x) => x !== f);
           if (live.length) this.spawnEnvoy(f, live[(Math.random() * live.length) | 0]);
@@ -469,12 +493,14 @@
       this.time += dt;
       this.updateEnvoys(dt);
       this.updateEmissaries(dt);
+      this.updateCoins(dt);
 
       for (const f of this.factions.values()) {
         f.beacon = Math.max(0, f.beacon - dt);
         f.storm = Math.max(0, f.storm - dt * 0.6);
         f.spawnFlash = Math.max(0, f.spawnFlash - dt);
         if (f.exhaleT) f.exhaleT = Math.max(0, f.exhaleT - dt);
+        if (f.coffer) f.coffer = Math.max(0, f.coffer - dt * 0.7);
         for (const s of Object.values(f.stations)) s.pulse = Math.max(0, s.pulse - dt * 1.5);
       }
 
@@ -576,8 +602,8 @@
           if (arrived) {
             if (u.carry) {
               f.resources++;
-              this.floater(f.x, f.y - 24, '+1', u.carry.hue);
-              this.burst(f.x, f.y, u.carry.hue, 6, 'deposit');
+              this.spawnCoin(u.x, u.y - 4, f);          // a coin arcs into the coffer
+              this.burst(u.x, u.y, u.carry.hue, 4, 'deposit');
               u.carry = null;
             }
             if (u.rest) { u.state = 'rest'; u.rest = false; this.floater(u.x, u.y - 16, 'z', f.hue); }

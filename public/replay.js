@@ -44,7 +44,15 @@
       if (event === 'PreCompact') a.preCompacts++;
       const h = A.hash(key);
       this.sim.applyFactionMeta({ key, name: a.name, hue: h % 360, crest: h % 12, level: 1, resources: a.resources, totalTools: a.totalTools, totalSessions: a.totalSessions, totalSubagents: a.totalSubagents, totalEvents: a.totalEvents, liveSessions: 0, firstSeen: a.firstSeen, lastSeen: a.lastSeen, toolCounts: a.toolCounts, preCompacts: a.preCompacts });
-      if (animate) this.sim.applyEvent({ event, projectKey: key, projectName: a.name, sessionId: sid, tool, isError: !!isErr, subagentType: sub });
+      if (animate) {
+        this.sim.applyEvent({ event, projectKey: key, projectName: a.name, sessionId: sid, tool, isError: !!isErr, subagentType: sub });
+        // replay cross-project emissaries too
+        const touched = ev[8];
+        if (event === 'PreToolUse' && Array.isArray(touched)) {
+          const fromF = this.sim.factions.get(key);
+          if (fromF) { const cat = /^(Read|Grep|Glob)$/.test(tool) ? 'scout' : /^(Edit|Write|NotebookEdit|MultiEdit)$/.test(tool) ? 'build' : 'reach'; for (const r of touched) { if (r === key) continue; const tf = this.sim.factions.get(r); if (tf) this.sim.spawnEmissary(fromF, tf, cat); } }
+        }
+      }
     }
     // jump to a time: rebuild from start to target (fast, no unit animation)
     seek(targetTs) {

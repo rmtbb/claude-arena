@@ -76,7 +76,7 @@
         const cluster = [];
         for (let k = 0; k < n; k++) { const a = r() * TAU, dd = r() * 46; cluster.push([px + Math.cos(a) * dd, py + Math.sin(a) * dd * 0.8, 6 + r() * 6]); }
         cluster.sort((p, q) => p[1] - q[1]);
-        for (const c of cluster) A.tree(ctx, c[0], c[1], c[2], L);
+        for (const c of cluster) A.tree(ctx, c[0], c[1], c[2], L, env.time);
       } else if (type < 0.64) {
         const n = 2 + (r() * 3 | 0); for (let k = 0; k < n; k++) { const a = r() * TAU, dd = r() * 22; A.rock(ctx, px + Math.cos(a) * dd, py + Math.sin(a) * dd, 5 + r() * 5, L); }
       }
@@ -276,6 +276,16 @@
     // the heart dims when the town goes quiet, warms back as it revives
     U.glow(ctx, x, y + hd - 4, 11 + f.beacon * 14, A.rgb(255, 196, 120, (0.1 + 0.4 * L.lampGlow + f.beacon * 0.3) * pulse * (0.28 + 0.72 * vit)));
     ctx.restore();
+    // the coffer beside the gate brims as coins arrive, then settles
+    if (f.coffer > 0.02) {
+      const cofx = x + hw * 0.55, cofy = y + hd - 3;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      U.glow(ctx, cofx, cofy, 5 + f.coffer * 7, A.rgb(255, 210, 120, Math.min(0.55, f.coffer * 0.5)));
+      ctx.restore();
+      ctx.fillStyle = A.css(A.hslArr(48, 80, 56));
+      const n = Math.min(6, Math.ceil(f.coffer * 5));
+      for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.arc(cofx + (i % 3 - 1) * 2.4, cofy - Math.floor(i / 3) * 2, 1.5, 0, TAU); ctx.fill(); }
+    }
     // central keep tower — gilded roof once lifetime tools cross the tier
     const ttop = A.cyl(ctx, x, y - hd * 0.2, 12 * sizeBoost, h + 26, A.WALLS.stone, L, { cap: A.WALLS.darkstone });
     const keepRoof = f.gilded ? A.mix([214, 176, 92], A.hslArr(f.hue, 50, 50), 0.22) : A.mix(facRoof(f.hue), A.hslArr(f.hue, 55, 48), 0.4);
@@ -306,7 +316,7 @@
 
   function drawProp(ctx, f, p, env) {
     const L = env._L;
-    if (p.kind === 'tree') A.tree(ctx, f.x + p.x, f.y + p.y, p.s, L);
+    if (p.kind === 'tree') A.tree(ctx, f.x + p.x, f.y + p.y, p.s, L, env.time);
     else A.rock(ctx, f.x + p.x, f.y + p.y, p.s, L);
   }
 
@@ -354,7 +364,7 @@
     ctx.fillRect(top[0], top[1], 4, 3);
     // the growing tree (sprout -> grove)
     const s = 3 + g * 11;
-    A.tree(ctx, x, y, s, L);
+    A.tree(ctx, x, y, s, L, env.time);
     if (g < 1 && (env.time % 2) < 0.06 + g) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, x, A.lift(x, y, s * 1.5)[1], 6, A.rgb(150, 255, 150, 0.18)); ctx.restore(); }
   }
 
@@ -524,6 +534,17 @@
     }
   }
 
+  // resource coins arcing into the coffer
+  function drawCoins(ctx, sim) {
+    for (const c of sim.coins) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      U.glow(ctx, c.x, c.y, 4, A.hslArr(c.hue, 90, 62), A.rgb(255, 240, 180, 0.45));
+      ctx.restore();
+      ctx.fillStyle = A.css(A.hslArr(c.hue, 85, 60)); ctx.beginPath(); ctx.ellipse(c.x, c.y, 2.2, 2.6, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = A.rgb(255, 250, 220, 0.85); ctx.fillRect(c.x - 0.6, c.y - 1.5, 1.2, 1.4);
+    }
+  }
+
   // ---- main ----------------------------------------------------------------
   function drawWorld(ctx, sim, env) {
     const L = env._L || (env._L = A.lighting());
@@ -575,22 +596,24 @@
       ctx.globalAlpha = 1;
     }
 
-    // chimney/forge smoke — only from living towns; stronger on active harvest
+    // chimney/forge smoke — living towns always breathe a little; harvest billows
     ctx.save();
     for (const f of facs) {
-      if (!f.town || (f._vit || 0) < 0.7) continue;
+      if (!f.town || (f._vit || 0) < 0.55) continue;
       const fb = f.town.buildings.find((b) => b.type === 'forge');
       const st = f.stations && f.stations.gas;
       if (!fb) continue;
-      const puffs = st && st.pulse > 0.2 ? 3 : 1;
+      const active = st && st.pulse > 0.2;
+      const puffs = active ? 4 : 2;
       const cx = f.x + fb.x + fb.w * 0.3, cy = f.y + fb.y - fb.d * 0.18;
-      const top = A.lift(cx, cy, fb.h + 16);
-      for (let i = 0; i < puffs; i++) { const life = ((env.time * 0.4 + i * 0.4) % 1); A.smoke(ctx, top[0] + Math.sin(env.time + i) * 3, top[1], life, L); }
+      const top = A.lift(cx, cy, (fb.h * growF(fb.born, env)) + 16);
+      for (let i = 0; i < puffs; i++) { const life = ((env.time * (active ? 0.5 : 0.32) + i * (1 / puffs)) % 1); A.smoke(ctx, top[0] + Math.sin(env.time * 0.8 + i * 2) * (3 + life * 5), top[1], life, L); }
     }
     ctx.restore();
 
     drawEnvoys(ctx, sim, env);
     drawEmissaries(ctx, sim, env);
+    drawCoins(ctx, sim);
 
     // fireflies drift around LIVING towns at night — a quiet sign of life
     if (L.lampGlow > 0.2) {

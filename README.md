@@ -153,15 +153,22 @@ It isn't a static diorama — it lives, and you can shape it:
 - **Wilder land.** Towns scatter organically across terrain with ponds, forest
   clusters, and rocky outcrops; fireflies drift around living towns at night;
   neglected towns sink into a beautiful teal-and-amber dusk instead of going grey.
+- **Rewarding to watch.** New buildings **rise out of the ground** with a puff of
+  dust instead of popping in; harvested work **coins arc into the keep's coffer**;
+  trees sway, forges smoke, and the keep glows when you finish a turn.
 
 ## ⏳ Watch the whole history
 
 Hit **⏳ History** to drop into a **time-lapse**. Scrub the timeline to any
 moment and play forward at an **adaptive speed** — 1× walks the whole span in
-~30 seconds, and 0.5× / 2× / 4× speed it up or down — watching your towns rise
-from a single Outpost as eras cross, walls go up, and day and night flicker past.
-It replays the real timestamped event log, rebuilding the world exactly as it was
-at any point. Hit **● LIVE** to snap back to now.
+~30 seconds, and 0.5× / 2× / 4× speed it up or down. Watch buildings **rise out
+of the ground** as eras cross and walls go up, **emissaries dart** between
+projects, day and night flicker past. It replays the real timestamped event log,
+rebuilding the world exactly as it was at any point. Hit **● LIVE** to snap back.
+
+The **▶ Watch it unfold** button on the return recap drops you straight into a
+**fast** replay of just the window you were away — so you can *see* what
+happened instead of reading it.
 
 ## Curate your tribes
 

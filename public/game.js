@@ -154,7 +154,7 @@
     let html = lines.map((l) => `<div>${l}</div>`).join('');
     if (watchFrom) html += `<button id="crier-watch" class="crier-watch">▶ Watch it unfold</button>`;
     body.innerHTML = html;
-    if (watchFrom) document.getElementById('crier-watch').onclick = () => { document.getElementById('crier').classList.remove('open'); enterReplay({ startAt: watchFrom }); };
+    if (watchFrom) document.getElementById('crier-watch').onclick = () => { document.getElementById('crier').classList.remove('open'); enterReplay({ startAt: watchFrom, fast: true }); };
     document.getElementById('crier').classList.add('open');
   }
   document.getElementById('crier-x').onclick = () => document.getElementById('crier').classList.remove('open');
@@ -198,9 +198,10 @@
     if (r.to - startAt < 60000) startAt = r.from;   // guard against a near-empty window
     r.viewFrom = startAt;                            // scrubber spans the WATCHED window
     r.baseSpeed = Math.max(1000, (r.to - startAt) / FULL_PLAY_SEC); // sim-ms advanced per real second
-    r.mult = 1; r.speed = r.baseSpeed;
+    r.mult = opts.fast ? 4 : 1;                      // the recap catches you up FAST
+    r.speed = r.baseSpeed * r.mult;
     r.seek(startAt); r.playing = true;
-    setReplayMultUI('1');
+    setReplayMultUI(String(r.mult));
     document.getElementById('rp-play').textContent = '❚❚';
     autoFrame = true; lastFactionCount = -1;
   }
