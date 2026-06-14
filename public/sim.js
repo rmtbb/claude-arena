@@ -25,6 +25,7 @@
   };
   const STATIONS = ['mineral', 'gas', 'scout', 'expedition', 'spawn'];
   const STATION_HUE = { mineral: 205, gas: 130, scout: 50, expedition: 285, spawn: 0 };
+  const HEAT_BUMP = { PreToolUse: 0.35, Stop: 0.55, SessionStart: 0.5, UserPromptSubmit: 0.3, SubagentStop: 0.3, PostToolUse: 0.15, Notification: 0.4, PreCompact: 0.6 };
 
   let UID = 1;
 
@@ -36,6 +37,7 @@
       this.particles = [];
       this.floaters = [];
       this.ticker = [];                // {text, hue, t}
+      this.chronicle = [];             // the readable saga (wall-clock timestamps)
       this.slot = 0;
       this.time = 0;
       this.alertHues = [];             // transient screen flashes
@@ -189,6 +191,9 @@
       const lore = window.Arena.lore;
       f.era = lore.eraIndex(f);
       f.eraName = lore.eraName(f);
+      // a rise in era is a saga moment (but don't log the initial establishment on load)
+      if (f._prevEra != null && f.era > f._prevEra) { this.log(`▲ ${f.name} grew into a ${f.eraName}`, f.hue); f.heat = Math.max(f.heat || 0, 1.4); }
+      f._prevEra = f.era;
       f.patina = lore.patina(f);
       f.gilded = lore.gilded(f);
       f.fingerprint = lore.fingerprint(f);
@@ -383,6 +388,8 @@
     log(text, hue) {
       this.ticker.push({ text, hue, t: this.time });
       if (this.ticker.length > 60) this.ticker.shift();
+      this.chronicle.push({ text, hue, t: Date.now() });   // the saga (wall-clock, longer memory)
+      if (this.chronicle.length > 200) this.chronicle.shift();
     }
 
     // ---- event ingestion --------------------------------------------------
@@ -390,6 +397,8 @@
       if (!n || !n.projectKey) return;
       const f = this.ensureFaction(n);
       const short = f.name;
+      // "heat" = recent activity; the cinematic director drifts toward the hottest town
+      f.heat = Math.min(2.5, (f.heat || 0) + (HEAT_BUMP[n.event] || 0.1));
 
       switch (n.event) {
         case 'SessionStart': {
@@ -408,6 +417,7 @@
           const u = this.workerFor(f, n.sessionId, n.sub);
           u.lastActive = this.time;
           u.tool = n.tool; u.actions++; u.turnWork = (u.turnWork || 0) + 1;
+          u.deeds = u.deeds || {}; if (n.tool) u.deeds[n.tool] = (u.deeds[n.tool] || 0) + 1;
           if (u.actions >= 12 && !u.veteran) u.veteran = true;
           // cross-project interaction: this tool touched another project's files
           if (n.touches && n.touches.length) {
@@ -501,6 +511,7 @@
         f.spawnFlash = Math.max(0, f.spawnFlash - dt);
         if (f.exhaleT) f.exhaleT = Math.max(0, f.exhaleT - dt);
         if (f.coffer) f.coffer = Math.max(0, f.coffer - dt * 0.7);
+        if (f.heat) f.heat = Math.max(0, f.heat - dt * 0.1);    // recency window ~ tens of seconds
         for (const s of Object.values(f.stations)) s.pulse = Math.max(0, s.pulse - dt * 1.5);
       }
 
@@ -602,6 +613,7 @@
           if (arrived) {
             if (u.carry) {
               f.resources++;
+              u.loads = (u.loads || 0) + 1;
               this.spawnCoin(u.x, u.y - 4, f);          // a coin arcs into the coffer
               this.burst(u.x, u.y, u.carry.hue, 4, 'deposit');
               u.carry = null;

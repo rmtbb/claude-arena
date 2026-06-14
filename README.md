@@ -59,9 +59,21 @@ period you missed.
 
 **Drill in.** Click any town for its dossier — era, founding date, a **work
 signature** bar (how the project is actually worked: Bash vs Edit vs Read…), a
-**21-day activity** sparkline, its **districts** (subfolders), and named
-**heroes** you can *click to follow* around the world. A **Chronicle** records
-the milestones it has crossed.
+**21-day activity** sparkline, and its **districts** (subfolders). Click any
+**hero** — in the list or right in the world — for a **detail card**: a portrait,
+its title and earned epithet, a one-line biography drawn from its real deeds, what
+it's doing *right now*, and the tools it has wielded. The camera follows it.
+
+**Read the saga.** Hit **📜 Chronicle** for a running, timestamped lore-log of
+everything happening across your world — towns rising through eras, workers
+awakening, subagents deployed, emissaries crossing between projects, memory storms
+weathered.
+
+**Let it play itself.** In **⚙ Settings**, turn on **Auto-follow the action** and
+the camera becomes a gentle cinematic director — it drifts to the busiest town,
+holds there a while, and only moves on when somewhere else clearly heats up. Touch
+the camera any time to take over; it yields instantly and resumes when you're idle.
+Leave it off to keep your own calm, zoomed-out view.
 
 > The world is one **RTS** today. The engine is a shared sim + a procedural
 > renderer, so cozy-aquarium and neon-cyber skins are on the way — same data,

@@ -55,7 +55,7 @@
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     moved += Math.abs(dx) + Math.abs(dy);
     cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom;
-    cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; followUnitId = null; lastX = e.clientX; lastY = e.clientY;
+    cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; followUnitId = null; userMovedAt = performance.now(); lastX = e.clientX; lastY = e.clientY;
   });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -63,7 +63,7 @@
     const f = Math.exp(-e.deltaY * 0.0015);
     cam.zoom = Math.max(0.2, Math.min(2.5, cam.zoom * f)); cam.tzoom = cam.zoom;
     const after = screenToWorld(e.clientX, e.clientY);
-    cam.x += before.x - after.x; cam.y += before.y - after.y; cam.tx = cam.x; cam.ty = cam.y; autoFrame = false;
+    cam.x += before.x - after.x; cam.y += before.y - after.y; cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; userMovedAt = performance.now();
   }, { passive: false });
 
   // touch (basic pan)
@@ -71,21 +71,32 @@
   canvas.addEventListener('touchmove', (e) => { const t = e.touches[0]; const dx = t.clientX - lastX, dy = t.clientY - lastY; moved += Math.abs(dx) + Math.abs(dy); cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.tx = cam.x; cam.ty = cam.y; autoFrame = false; lastX = t.clientX; lastY = t.clientY; }, { passive: true });
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { autoFrame = true; lastFactionCount = -1; }
+    if (e.key === 'r' || e.key === 'R') { autoFrame = true; lastFactionCount = -1; userMovedAt = performance.now(); fitView(false); }
     if (e.key === '?') document.getElementById('legend').classList.toggle('open');
     if (e.key === 'Escape') { document.getElementById('legend').classList.remove('open'); closeCurate(); }
   });
 
   function handleClick(sx, sy) {
     const w = screenToWorld(sx, sy);
+    userMovedAt = performance.now();
     if (dropMode) { placeDrop(w.x, w.y); return; }
+    // first: did we click a unit? (generous radius that grows when zoomed out)
+    const pick = 12 / cam.zoom + 4;
+    let bu = null, bud = pick * pick;
+    for (const u of sim.units.values()) {
+      if (u.dead || u.kind === 'drone') continue;
+      const dx = u.x - w.x, dy = (u.kind === 'drone' ? u.y - 10 : u.y) - w.y, d2 = dx * dx + dy * dy;
+      if (d2 < bud) { bud = d2; bu = u; }
+    }
+    if (bu) { selectHero(bu); return; }
+    // else: a town
     let best = null, bd = 1e9;
     for (const f of sim.factions.values()) {
       const d = Math.hypot(f.x - w.x, f.y - w.y);
       const r = f.town ? f.town.territory : 90;
       if (d < r && d < bd) { bd = d; best = f; }
     }
-    if (best) { focusFaction(best, Math.max(cam.zoom, 1.35)); openCurate(best); }
+    if (best) { closeHero(); focusFaction(best, Math.max(cam.zoom, 1.35)); openCurate(best); }
   }
 
   // ---- live data -----------------------------------------------------------
@@ -405,9 +416,118 @@
   function focusSatellite(f, sub) { if (!f.town || !f.town.satellites) return; const s = f.town.satellites.find((x) => x.sub === sub); if (!s) return; followUnitId = null; autoFrame = false; cam.tx = f.x + s.x; cam.ty = f.y + s.y; cam.tzoom = Math.max(cam.zoom, 1.7); }
   document.getElementById('f-heroes').addEventListener('click', (e) => {
     const row = e.target.closest('.hero.click'); if (!row) return;
-    if (row.dataset.uid) { followUnitId = +row.dataset.uid; autoFrame = false; }
+    if (row.dataset.uid) { const u = sim.units.get(+row.dataset.uid); if (u) selectHero(u); }
     else if (row.dataset.sub != null && curated) focusSatellite(curated, row.dataset.sub);
   });
+
+  // ---- hero detail card ----------------------------------------------------
+  const heroCard = document.getElementById('hero-card');
+  let selectedHeroId = null;
+  function stationName(s) { return ({ mineral: 'workshop', gas: 'forge', scout: 'watchtower', expedition: 'war-gate', spawn: 'barracks' })[s] || 'town'; }
+  function heroAction(u) {
+    switch (u.state) {
+      case 'toResource': return `marching to the ${stationName(u.targetStation)}`;
+      case 'gathering': return `hard at work in the ${stationName(u.targetStation)}`;
+      case 'returning': return u.carry ? 'hauling a load to the keep' : 'heading home';
+      case 'rest': return 'resting by the keep';
+      case 'spawning': return 'newly arrived in town';
+      case 'leaving': return 'departing the world';
+      case 'stumble': return 'recovering from a stumble';
+      default: return 'roaming the town';
+    }
+  }
+  function heroBio(u, f) {
+    const a = u.actions || 0;
+    const arch = a > 40 ? 'A tireless veteran' : a > 15 ? 'A seasoned hand' : a > 4 ? 'A rising worker' : 'A fresh recruit';
+    const deeds = u.deeds || {}; let dom = null, dv = 0; for (const k in deeds) if (deeds[k] > dv) { dv = deeds[k]; dom = k; }
+    const craft = dom ? ({ Bash: 'forge-work and running commands', Edit: 'building and editing', Write: 'building and editing', Read: 'scouting and reading the archives', Grep: 'scouting and reading the archives', Glob: 'scouting and reading the archives', WebFetch: 'far expeditions beyond the wall', WebSearch: 'far expeditions beyond the wall', Task: 'mustering subagents' })[dom] || 'many trades' : 'turning a hand to whatever is needed';
+    return `${arch} of ${f ? f.name : 'the tribe'}, known for ${craft}.`;
+  }
+  function drawPortrait(u) {
+    const cv = document.getElementById('hc-portrait'), x = cv.getContext('2d'); x.clearRect(0, 0, 56, 56);
+    const f = sim.factions.get(u.factionKey), hue = f ? f.hue : 200;
+    const g = x.createLinearGradient(0, 0, 0, 56); g.addColorStop(0, U.hsl(hue, 30, 24)); g.addColorStop(1, U.hsl(hue, 25, 14));
+    x.fillStyle = g; x.fillRect(0, 0, 56, 56);
+    const cx = 28, cy = 36, s = 12;
+    x.fillStyle = 'rgba(6,8,12,0.35)'; x.beginPath(); x.ellipse(cx, cy + s * 1.1, s, s * 0.4, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = U.hsl(hue, 55, 48); x.beginPath(); x.ellipse(cx, cy, s, s * 1.15, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = U.hsl(hue, 55, 60); x.beginPath(); x.ellipse(cx - s * 0.25, cy - s * 0.15, s * 0.6, s * 0.85, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#e9cfaa'; x.beginPath(); x.arc(cx, cy - s * 0.95, s * 0.62, 0, Math.PI * 2); x.fill();
+    x.fillStyle = U.hsl(hue, 65, 52); x.beginPath(); x.arc(cx, cy - s * 1.15, s * 0.62, Math.PI, Math.PI * 2); x.fill();
+    if (u.veteran) { x.fillStyle = U.hsl((hue + 45) % 360, 85, 66); x.beginPath(); x.moveTo(cx, cy - s * 1.7); x.lineTo(cx - 3, cy - s * 2.8); x.lineTo(cx + 3, cy - s * 2.6); x.closePath(); x.fill(); }
+  }
+  function selectHero(u) {
+    if (!u) return;
+    selectedHeroId = u.id; followUnitId = u.id; autoFrame = false; userMovedAt = performance.now();
+    drawPortrait(u); refreshHeroCard(); heroCard.classList.add('open');
+  }
+  function closeHero() { heroCard.classList.remove('open'); selectedHeroId = null; followUnitId = null; }
+  document.getElementById('hc-close').onclick = closeHero;
+  function refreshHeroCard() {
+    if (selectedHeroId == null) return;
+    const u = sim.units.get(selectedHeroId);
+    if (!u || u.dead) { closeHero(); return; }
+    const f = sim.factions.get(u.factionKey), id = u.identity || { name: 'Worker', title: 'Hand', vet: '' };
+    document.getElementById('hc-name').innerHTML = esc(id.name) + (u.veteran ? ` <span class="vet">${esc(id.vet)}</span>` : '');
+    document.getElementById('hc-title').textContent = `${id.title} of ${f ? f.name : '?'}` + (u.sub ? ' · ' + (u.sub.split('/').pop()) : '');
+    document.getElementById('hc-bio').textContent = heroBio(u, f);
+    const age = Math.max(0, Math.floor(sim.time - (u.born || 0)));
+    document.getElementById('hc-stats').innerHTML =
+      chip('deeds', u.actions || 0) + chip('loads', u.loads || 0) +
+      chip('in service', age < 60 ? age + 's' : Math.floor(age / 60) + 'm') + chip('rank', u.veteran ? 'Veteran ★' : 'Worker');
+    document.getElementById('hc-action').innerHTML = `<b>Right now:</b> ${heroAction(u)}`;
+    const deeds = u.deeds || {}, parts = Object.entries(deeds).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, c]) => `${esc(t)} ×${c}`);
+    document.getElementById('hc-deeds').innerHTML = parts.length ? '<b>Deeds:</b> ' + parts.join(' · ') : '';
+  }
+  setInterval(() => { if (selectedHeroId != null) refreshHeroCard(); }, 450);
+
+  // ---- the Chronicle (lore saga) -------------------------------------------
+  const chronicleEl = document.getElementById('chronicle');
+  function chronTime(ms) { const s = (Date.now() - ms) / 1000; if (s < 50) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; return Math.floor(s / 86400) + 'd ago'; }
+  function renderChronicle() {
+    const body = document.getElementById('ch-body');
+    const items = sim.chronicle.slice(-130).reverse();
+    body.innerHTML = items.length
+      ? items.map((e) => `<div class="ch-entry"><span class="ch-t">${chronTime(e.t)}</span><span class="ch-x" style="color:${e.hue != null ? U.hsl(e.hue, 45, 80) : '#d6e2ee'}">${e.text}</span></div>`).join('')
+      : `<div class="dim" style="padding:16px;font-size:12px">The saga begins as you work. Notable events — towns rising, subagents deployed, projects reaching into one another — will be recorded here.</div>`;
+  }
+  document.getElementById('btn-chronicle').onclick = () => { const open = chronicleEl.classList.toggle('open'); document.getElementById('btn-chronicle').classList.toggle('on', open); if (open) renderChronicle(); };
+  document.getElementById('ch-close').onclick = () => { chronicleEl.classList.remove('open'); document.getElementById('btn-chronicle').classList.remove('on'); };
+  setInterval(() => { if (chronicleEl.classList.contains('open')) renderChronicle(); }, 1500);
+
+  // ---- settings + cinematic director ---------------------------------------
+  const SET = { autofollow: false, cinzoom: true, ticker: true };
+  try { Object.assign(SET, JSON.parse(localStorage.getItem('arena.settings')) || {}); } catch (_) {}
+  function saveSettings() { try { localStorage.setItem('arena.settings', JSON.stringify(SET)); } catch (_) {} }
+  const settingsEl = document.getElementById('settings');
+  document.getElementById('btn-settings').onclick = () => { settingsEl.classList.toggle('open'); document.getElementById('legend').classList.remove('open'); };
+  document.getElementById('set-close').onclick = () => settingsEl.classList.remove('open');
+  function bindToggle(id, key, after) { const el = document.getElementById(id); el.checked = SET[key]; el.onchange = () => { SET[key] = el.checked; saveSettings(); if (after) after(el.checked); }; }
+  bindToggle('set-autofollow', 'autofollow');
+  bindToggle('set-cinzoom', 'cinzoom');
+  bindToggle('set-ticker', 'ticker', (v) => { document.getElementById('ticker-wrap').style.display = v ? '' : 'none'; });
+  document.getElementById('ticker-wrap').style.display = SET.ticker ? '' : 'none';
+
+  let userMovedAt = 0, directorSubject = null, directorSince = 0;
+  function director(nowMs) {
+    let best = null, bh = 0;
+    for (const f of sim.factions.values()) { if ((f.heat || 0) > bh) { bh = f.heat; best = f; } }
+    if (best && bh > 0.6) {
+      if (directorSubject !== best) {
+        const dwellOk = nowMs - directorSince > 9000;
+        const cur = directorSubject && sim.factions.get(directorSubject.key);
+        const muchHotter = !cur || bh > (cur.heat || 0) * 1.6 + 0.4;
+        if (!directorSubject || dwellOk || muchHotter) { directorSubject = best; directorSince = nowMs; }
+      }
+      const subj = directorSubject || best;
+      cam.tx = subj.x; cam.ty = subj.y - 18; cam.tzoom = SET.cinzoom ? 1.15 : 0.62;
+    } else {
+      directorSubject = null;
+      const b = sim.bounds();
+      cam.tx = (b.minx + b.maxx) / 2; cam.ty = (b.miny + b.maxy) / 2;
+      cam.tzoom = Math.max(0.25, Math.min(0.9, Math.min(W / (b.maxx - b.minx + 280), H / (b.maxy - b.miny + 280))));
+    }
+  }
 
   function closeCurate() { panel.classList.remove('open'); curated = null; followUnitId = null; }
   function applyCurate(save) {
@@ -474,7 +594,7 @@
   };
 
   // ---- toolbar actions -----------------------------------------------------
-  document.getElementById('btn-frame').onclick = () => { autoFrame = true; lastFactionCount = -1; };
+  document.getElementById('btn-frame').onclick = () => { autoFrame = true; lastFactionCount = -1; userMovedAt = performance.now(); fitView(false); };
   document.getElementById('btn-help').onclick = () => document.getElementById('legend').classList.toggle('open');
   document.getElementById('lg-close').onclick = () => document.getElementById('legend').classList.remove('open');
   document.getElementById('btn-shot').onclick = () => {
@@ -512,8 +632,11 @@
     if (autoFrame && sim.factions.size !== lastFactionCount) { lastFactionCount = sim.factions.size; fitView(false); }
     // follow a selected worker around the world (drill-down)
     if (followUnitId != null) { const fu = sim.units.get(followUnitId); if (fu && !fu.dead) { cam.tx = fu.x; cam.ty = fu.y - 8; if (cam.tzoom < 1.5) cam.tzoom = 1.8; } else followUnitId = null; }
-    // smooth easing toward the (stable) target
-    const ease = Math.min(1, dt * 3.2);
+    // cinematic director — drifts to wherever the action is, when enabled & idle
+    const directorActive = SET.autofollow && !replay && !curated && selectedHeroId == null && followUnitId == null && (now - userMovedAt > 6000);
+    if (directorActive) { autoFrame = false; director(now); }
+    // smooth easing — slow & cinematic while the director drives, snappy otherwise
+    const ease = Math.min(1, dt * (directorActive ? 1.25 : 3.2));
     cam.x += (cam.tx - cam.x) * ease;
     cam.y += (cam.ty - cam.y) * ease;
     cam.zoom += (cam.tzoom - cam.zoom) * ease;

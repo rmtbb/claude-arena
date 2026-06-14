@@ -29,8 +29,30 @@
     <div class="stat"><div class="num" id="hud-drones">0</div><div class="lbl">subagents</div></div>
   </div>
 
-  <!-- help / legend toggle -->
+  <!-- top-right controls -->
+  <button id="btn-settings" title="Settings">⚙</button>
   <button id="btn-help" title="What am I looking at?">?</button>
+
+  <!-- settings -->
+  <aside id="settings">
+    <div class="lg-head">Settings <button id="set-close" class="x">✕</button></div>
+    <label class="set-row"><span><b>Auto-follow the action</b><small>The camera gently drifts to the busiest town. Touch the camera any time to take over.</small></span><input type="checkbox" id="set-autofollow" class="toggle" /></label>
+    <label class="set-row"><span><b>Cinematic zoom</b><small>Auto-follow eases in close. Off keeps a wider, calmer framing.</small></span><input type="checkbox" id="set-cinzoom" class="toggle" checked /></label>
+    <label class="set-row"><span><b>Show the Chronicle ticker</b><small>The scrolling log of recent events at the bottom.</small></span><input type="checkbox" id="set-ticker" class="toggle" checked /></label>
+  </aside>
+
+  <!-- hero detail card -->
+  <aside id="hero-card">
+    <div class="hc-head">
+      <canvas id="hc-portrait" width="56" height="56"></canvas>
+      <div class="hc-id"><div id="hc-name">Hero</div><div id="hc-title" class="hc-sub"></div></div>
+      <button id="hc-close" class="x">✕</button>
+    </div>
+    <div id="hc-bio" class="hc-bio"></div>
+    <div id="hc-stats" class="hc-stats"></div>
+    <div id="hc-action" class="hc-action"></div>
+    <div id="hc-deeds" class="hc-deeds"></div>
+  </aside>
   <aside id="legend">
     <div class="lg-head">How to read your arena <button id="lg-close" class="x">✕</button></div>
     <div class="lg-row"><span class="lg-ic">🏰</span><b>Each town is a project.</b> It grows from your real work — Outpost → Hamlet → Walled Town → Citadel → Capital.</div>
@@ -58,10 +80,17 @@
   <!-- toolbar -->
   <div id="toolbar">
     <button id="btn-frame" title="Frame the whole map (R)"><span>⤢</span> Overview</button>
+    <button id="btn-chronicle" title="The Chronicle — the saga of your world"><span>📜</span> Chronicle</button>
     <button id="btn-plant" title="Plant a sapling in a town — it grows as the project works"><span>🌱</span> Plant</button>
     <button id="btn-history" title="Watch the whole history as a time-lapse"><span>⏳</span> History</button>
     <button id="btn-shot" title="Save a shareable postcard"><span>⤓</span> Postcard</button>
   </div>
+
+  <!-- the Chronicle: a readable saga of what's happening -->
+  <aside id="chronicle">
+    <div class="ch-head"><span>📜 The Chronicle</span><button id="ch-close" class="x">✕</button></div>
+    <div id="ch-body" class="ch-body"></div>
+  </aside>
 
   <!-- time-lapse replay controls -->
   <div id="replay">
