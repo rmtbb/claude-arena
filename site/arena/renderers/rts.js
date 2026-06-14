@@ -18,30 +18,66 @@
   let groundTile = null, groundPattern = null;
   function ensureGround(ctx) {
     if (groundTile) return;
-    const s = 256;
+    const s = 512;                                  // bigger tile = less obvious repeat
     groundTile = document.createElement('canvas'); groundTile.width = groundTile.height = s;
     const g = groundTile.getContext('2d');
-    const base = A.hslArr(96, 20, 30);
-    g.fillStyle = A.css(base); g.fillRect(0, 0, s, s);
-    // mottled grass via fbm, plus speckle
-    const img = g.getImageData(0, 0, s, s), d = img.data;
+    const lush = A.hslArr(108, 26, 31), dry = A.hslArr(74, 22, 33), dirt = A.hslArr(40, 24, 30);
+    const img = g.createImageData(s, s), d = img.data;
     for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
-      const n = A.fbm(x / 42, y / 42, 4) - 0.5;
+      // large-scale biome blend (lush <-> dry) + fine grass mottle + occasional dirt
+      const biome = A.fbm(x / 150, y / 150, 3);
+      const fine = A.fbm(x / 30, y / 30, 4) - 0.5;
+      const patch = A.fbm(x / 70 + 9, y / 70 + 4, 3);
+      let c = A.mix(dry, lush, A.clamp(biome * 1.5 - 0.2, 0, 1));
+      if (patch > 0.66) c = A.mix(c, dirt, (patch - 0.66) * 2.6);
+      const k = fine * 24;
       const i = (y * s + x) * 4;
-      const k = n * 26;
-      d[i] = A.clamp(base[0] + k * 0.6, 0, 255);
-      d[i + 1] = A.clamp(base[1] + k, 0, 255);
-      d[i + 2] = A.clamp(base[2] + k * 0.5, 0, 255);
-      d[i + 3] = 255;
+      d[i] = A.clamp(c[0] + k * 0.6, 0, 255); d[i + 1] = A.clamp(c[1] + k, 0, 255); d[i + 2] = A.clamp(c[2] + k * 0.5, 0, 255); d[i + 3] = 255;
     }
     g.putImageData(img, 0, 0);
-    // a few darker tufts
-    for (let i = 0; i < 60; i++) {
-      const x = Math.random() * s, y = Math.random() * s;
-      g.fillStyle = A.css(A.shade(base, -0.25), 0.5);
-      g.beginPath(); g.arc(x, y, 1 + Math.random() * 1.6, 0, TAU); g.fill();
-    }
+    for (let i = 0; i < 240; i++) { const x = Math.random() * s, y = Math.random() * s; g.fillStyle = A.css(A.shade(lush, Math.random() < 0.5 ? -0.3 : 0.25), 0.4); g.beginPath(); g.arc(x, y, 0.8 + Math.random() * 1.4, 0, TAU); g.fill(); }
     groundPattern = ctx.createPattern(groundTile, 'repeat');
+  }
+
+  // procedural wilderness: ponds, forests, outcrops — deterministic, culled,
+  // and kept clear of towns. Makes the map feel like a place, not a felt mat.
+  function drawTerrainFeatures(ctx, sim, env) {
+    const L = env._L;
+    const tl = env._s2w(0, 0), br = env._s2w(env.w, env.h);
+    const cell = 420;
+    const x0 = Math.floor(tl.x / cell) - 1, x1 = Math.ceil(br.x / cell) + 1;
+    const y0 = Math.floor(tl.y / cell) - 1, y1 = Math.ceil(br.y / cell) + 1;
+    if ((x1 - x0) * (y1 - y0) > 160) return;          // far zoom: skip detail
+    for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) {
+      const r = A.mulberry(A.hash(cx + '_' + cy));
+      const type = r();
+      const px = cx * cell + r() * cell, py = cy * cell + r() * cell;
+      let nearTown = false;
+      for (const f of sim.factions.values()) { if (f.town && Math.hypot(f.x - px, f.y - py) < f.town.territory + 50) { nearTown = true; break; } }
+      if (nearTown) continue;
+      if (type < 0.1) {
+        drawPond(ctx, px, py, 34 + r() * 54, L, env.time);
+      } else if (type < 0.56) {
+        const n = 6 + (r() * 8 | 0);
+        const cluster = [];
+        for (let k = 0; k < n; k++) { const a = r() * TAU, dd = r() * 46; cluster.push([px + Math.cos(a) * dd, py + Math.sin(a) * dd * 0.8, 6 + r() * 6]); }
+        cluster.sort((p, q) => p[1] - q[1]);
+        for (const c of cluster) A.tree(ctx, c[0], c[1], c[2], L);
+      } else if (type < 0.64) {
+        const n = 2 + (r() * 3 | 0); for (let k = 0; k < n; k++) { const a = r() * TAU, dd = r() * 22; A.rock(ctx, px + Math.cos(a) * dd, py + Math.sin(a) * dd, 5 + r() * 5, L); }
+      }
+    }
+  }
+  function drawPond(ctx, x, y, rad, L, time) {
+    const a = Math.max(0.4, L.ambient);
+    ctx.fillStyle = A.css(A.shade([60, 80, 70], -0.2)); ctx.beginPath(); ctx.ellipse(x, y, rad + 3, rad * 0.62 + 3, 0, 0, TAU); ctx.fill(); // muddy bank
+    const g = ctx.createRadialGradient(x - rad * 0.3, y - rad * 0.2, rad * 0.1, x, y, rad);
+    g.addColorStop(0, A.css(A.shade([70, 130, 165], 0.15 * a))); g.addColorStop(1, A.css(A.shade([40, 86, 120], 0)));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y, rad, rad * 0.62, 0, 0, TAU); ctx.fill();
+    // glints
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) { const gx = x + Math.sin(time * 0.6 + i * 2) * rad * 0.4, gy = y + (i - 1) * rad * 0.18; ctx.fillStyle = A.rgb(220, 240, 255, 0.12 * a); ctx.fillRect(gx - rad * 0.2, gy, rad * 0.4, 1.4); }
+    ctx.restore();
   }
 
   // ---- background = sky tint ----------------------------------------------
@@ -242,12 +278,36 @@
       ctx.strokeStyle = A.css(A.hslArr(f.hue, 85, 65), f.beacon / 1.2); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(x, y, 30 + pr, (30 + pr) * 0.82, 0, 0, TAU); ctx.stroke();
     }
+    // the Stop-Beat exhale: a warm tide of light blooms out from the keep heart
+    if (f.exhaleT > 0) {
+      const k = 1 - f.exhaleT / 2.6;                 // 0..1 over the beat
+      const ex = f.exhale * (1 - k);                 // fades as it expands
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      U.glow(ctx, x, y, 26 + k * (70 + f.exhale * 90), A.rgb(255, 208, 138, 0.42 * ex));
+      ctx.restore();
+    }
   }
 
   function drawProp(ctx, f, p, env) {
     const L = env._L;
     if (p.kind === 'tree') A.tree(ctx, f.x + p.x, f.y + p.y, p.s, L);
     else A.rock(ctx, f.x + p.x, f.y + p.y, p.s, L);
+  }
+
+  // a player-planted Folk-Drop: a sapling that grows into a grove, fed by the
+  // town's real Stop-Beats. A cultivated stake marks it as deliberately placed.
+  function drawDrop(ctx, f, dp, env) {
+    const L = env._L, x = f.x + dp.x, y = f.y + dp.y, g = dp.growth || 0;
+    // faction stake/ribbon
+    const top = A.lift(x - 5, y, 8);
+    ctx.strokeStyle = A.css(A.shade([110, 92, 64], 0)); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(top[0], top[1]); ctx.stroke();
+    ctx.fillStyle = A.css(A.hslArr(f.hue, 55, 52 * Math.max(0.6, L.ambient)));
+    ctx.fillRect(top[0], top[1], 4, 3);
+    // the growing tree (sprout -> grove)
+    const s = 3 + g * 11;
+    A.tree(ctx, x, y, s, L);
+    if (g < 1 && (env.time % 2) < 0.06 + g) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, x, A.lift(x, y, s * 1.5)[1], 6, A.rgb(150, 255, 150, 0.18)); ctx.restore(); }
   }
 
   // ---- units ---------------------------------------------------------------
@@ -351,12 +411,53 @@
     ctx.restore();
   }
 
-  // veil dormant towns: a desaturating grey-green wash that lifts as vitality returns
+  // dormant towns don't go muddy — they fall into a lovely teal-and-amber dusk
+  // that deepens with idleness and lifts the instant vitality returns.
   function dormancyVeil(ctx, f) {
     const t = f.town, vit = f._vit; if (vit > 0.93) return;
     const d = 1 - vit;
-    ctx.fillStyle = A.rgb(74, 80, 66, d * 0.36);
-    ctx.beginPath(); ctx.ellipse(f.x, f.y, t.territory * 0.94, t.territory * 0.8, 0, 0, TAU); ctx.fill();
+    const g = ctx.createRadialGradient(f.x, f.y, t.territory * 0.2, f.x, f.y, t.territory);
+    g.addColorStop(0, A.rgb(58, 78, 92, d * 0.30));          // cool teal core
+    g.addColorStop(0.7, A.rgb(40, 54, 74, d * 0.40));        // deep dusk blue
+    g.addColorStop(1, A.rgb(70, 52, 60, d * 0.30));          // faint amber edge
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, t.territory * 0.98, t.territory * 0.82, 0, 0, TAU); ctx.fill();
+    // a couple of lonely amber window-lights still burning
+    if (d > 0.4) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, f.x + 6, f.y - 4, 10, A.rgb(255, 190, 110, d * 0.18)); ctx.restore(); }
+  }
+
+  // trade roads worn between towns that are active together
+  function drawRoads(ctx, sim, env) {
+    const L = env._L;
+    for (const r of sim.roads.values()) {
+      const a = sim.factions.get(r.a), b = sim.factions.get(r.b); if (!a || !b) continue;
+      const mx = (a.x + b.x) / 2 + (b.y - a.y) * 0.06, my = (a.y + b.y) / 2 - (b.x - a.x) * 0.06;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = A.css(A.shade([116, 92, 60], (L.ambient - 1) * 0.4), 0.18 + r.wear * 0.5);
+      ctx.lineWidth = 3 + r.wear * 7;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(mx, my, b.x, b.y); ctx.stroke();
+      ctx.strokeStyle = A.css(A.shade([138, 112, 74], 0.1 * L.ambient), 0.2 + r.wear * 0.4);
+      ctx.lineWidth = 1.5 + r.wear * 2.5;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(mx, my, b.x, b.y); ctx.stroke();
+    }
+  }
+
+  // a little ox-cart envoy trundling along a road
+  function drawEnvoys(ctx, sim, env) {
+    const L = env._L;
+    for (const e of sim.envoys) {
+      const bob = Math.sin(e.wob) * 0.8, x = e.x, y = e.y + bob, f = e.facing;
+      ctx.fillStyle = `rgba(6,8,12,${L.shadowA})`; ctx.beginPath(); ctx.ellipse(x + 1, e.y + 3, 9, 3, 0, 0, TAU); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; U.glow(ctx, x - f * 8, y + 1, 5, A.rgb(185, 165, 135, 0.1)); ctx.restore();
+      // ox
+      ctx.fillStyle = A.css(A.shade([96, 84, 72], (L.ambient - 1) * 0.4)); ctx.beginPath(); ctx.ellipse(x + f * 9, y + 1, 4, 2.6, 0, 0, TAU); ctx.fill();
+      // cart bed + wheels
+      ctx.fillStyle = A.css(A.shade([108, 82, 52], (L.ambient - 1) * 0.4)); ctx.fillRect(x - 6, y - 3, 12, 5);
+      ctx.fillStyle = '#241f1b'; ctx.beginPath(); ctx.arc(x - 4, y + 2, 2, 0, TAU); ctx.arc(x + 4, y + 2, 2, 0, TAU); ctx.fill();
+      // faction canopy
+      ctx.fillStyle = A.css(A.hslArr(e.hue, 46, 54 * Math.max(0.6, L.ambient)));
+      ctx.beginPath(); ctx.moveTo(x - 6, y - 3); ctx.quadraticCurveTo(x, y - 11, x + 6, y - 3); ctx.closePath(); ctx.fill();
+    }
   }
 
   // ---- main ----------------------------------------------------------------
@@ -364,6 +465,7 @@
     const L = env._L || (env._L = A.lighting());
     env._sim = sim;
     drawGround(ctx, env);
+    drawTerrainFeatures(ctx, sim, env);
 
     const facs = Array.from(sim.factions.values()).sort((a, b) => a.y - b.y);
     const far = env.cam.zoom < 0.42;
@@ -376,7 +478,8 @@
       f._vit += (target - f._vit) * 0.05;
     }
 
-    // pass 1: ground-level (territory, paths, walls)
+    // pass 1: ground-level (roads between towns, territory, walls)
+    drawRoads(ctx, sim, env);
     for (const f of facs) drawTerritory(ctx, f, env);
     for (const f of facs) { if (!far && f.town && f.town.hasWall) drawWall(ctx, f, env); }
 
@@ -392,6 +495,7 @@
       }
       const draw = [];
       for (const p of t.props) draw.push({ y: f.y + p.y, fn: () => drawProp(ctx, f, p, env) });
+      if (f.drops) for (const dp of f.drops) draw.push({ y: f.y + dp.y, fn: () => drawDrop(ctx, f, dp, env) });
       for (const h of t.houses) draw.push({ y: f.y + h.y, fn: () => drawHouse(ctx, f, h, env) });
       for (const b of t.buildings) draw.push({ y: f.y + b.y, fn: () => drawBuilding(ctx, f, b, env) });
       draw.push({ y: f.y - 1, fn: () => drawKeep(ctx, f, env) });
@@ -427,6 +531,26 @@
       for (let i = 0; i < puffs; i++) { const life = ((env.time * 0.4 + i * 0.4) % 1); A.smoke(ctx, top[0] + Math.sin(env.time + i) * 3, top[1], life, L); }
     }
     ctx.restore();
+
+    drawEnvoys(ctx, sim, env);
+
+    // fireflies drift around LIVING towns at night — a quiet sign of life
+    if (L.lampGlow > 0.2 && !far) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (const f of facs) {
+        if (!f.town || (f._vit || 0) < 0.5) continue;
+        const base = A.hash(f.key) % 100, R = f.town.wallR;
+        for (let i = 0; i < 5; i++) {
+          const sd = i * 1.7 + base;
+          const fx = f.x + Math.sin(env.time * 0.7 + sd) * R * 0.85;
+          const fy = f.y + Math.cos(env.time * 0.5 + sd * 1.3) * R * 0.6 - 5;
+          const tw = 0.5 + 0.5 * Math.sin(env.time * 4 + sd * 3);
+          ctx.fillStyle = A.rgb(205, 255, 150, 0.55 * tw * L.lampGlow * (f._vit || 1));
+          ctx.beginPath(); ctx.arc(fx, fy, 1.5, 0, TAU); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
 
     // "grew while you were away" highlight pulse (set by the return beat)
     const nowMs = Date.now();

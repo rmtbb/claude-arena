@@ -54,11 +54,42 @@ function prettifyName(base) {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Resolve a working directory to its PROJECT ROOT so every session launched
+// anywhere inside a project (even deep subfolders) belongs to ONE tribe.
+// Strategy: climb to the nearest ancestor that is a repo/project root (.git is
+// the strongest signal), else fall back to the first folder under a common
+// projects parent, else the cwd itself. Cached — we only stat the FS once/dir.
+const projectRootCache = new Map();
+const ROOT_MARKERS = ['.git', '.hg', '.svn'];
+// Folders whose immediate child is "a project". Match the OUTERMOST one so a
+// session in proj/outputs/run-3 (even if run-3 is its own git repo) rolls up to
+// the top-level project folder — which is what "one tribe per project" means.
+const PARENT_RE = /^(.*?\/(?:Projects|projects|repos|repositories|workspace|work|src|dev|code|sites)\/[^/]+)/;
+function findProjectRoot(cwd) {
+  if (projectRootCache.has(cwd)) return projectRootCache.get(cwd);
+  let root = null;
+  const m = cwd.match(PARENT_RE);
+  if (m) {
+    root = m[1];                                 // the folder directly under Projects/ etc.
+  } else {
+    // no recognised projects parent — fall back to the nearest VCS root, else cwd
+    let dir = cwd; const home = os.homedir();
+    for (let i = 0; i < 40 && dir && dir !== '/' && dir !== home; i++) {
+      let hit = false;
+      for (const mk of ROOT_MARKERS) { try { if (fs.existsSync(path.join(dir, mk))) { hit = true; break; } } catch (_) {} }
+      if (hit) { root = dir; break; }
+      const up = path.dirname(dir); if (up === dir) break; dir = up;
+    }
+    if (!root) root = cwd;
+  }
+  projectRootCache.set(cwd, root);
+  return root;
+}
 function deriveProject(cwd) {
   if (!cwd || typeof cwd !== 'string') return { key: 'unknown', name: 'The Unknown', base: 'unknown' };
-  const parts = cwd.split('/').filter(Boolean);
-  const base = parts[parts.length - 1] || cwd;
-  return { key: cwd, name: prettifyName(base), base };
+  const root = findProjectRoot(cwd);
+  const base = root.split('/').filter(Boolean).pop() || root;
+  return { key: root, name: prettifyName(base), base };
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +424,23 @@ const server = http.createServer(async (req, res) => {
   if (url === '/api/state') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify(snapshot()));
+  }
+
+  // full timestamped history for the time-lapse replay (compact rows)
+  if (url.split('?')[0] === '/api/history') {
+    let lines = [];
+    try { lines = fs.readFileSync(LOG_FILE, 'utf8').split('\n'); } catch (_) {}
+    const out = [];
+    const CAP = 80000;
+    const start = Math.max(0, lines.length - CAP);
+    for (let i = start; i < lines.length; i++) {
+      const ln = lines[i]; if (!ln.trim()) continue;
+      const n = normalize(ln); if (!n || !n.projectKey) continue;
+      // compact tuple: [ts, event, projectKey, projectName, tool, sessionId, isError, subagentType]
+      out.push([n.ts, n.event, n.projectKey, n.projectName, n.tool || 0, n.sessionId || 0, n.isError ? 1 : 0, n.subagentType || 0]);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ events: out, count: out.length, from: out.length ? out[0][0] : 0, to: out.length ? out[out.length - 1][0] : 0 }));
   }
 
   if (url === '/api/stream') {

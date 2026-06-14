@@ -39,23 +39,64 @@
       this.slot = 0;
       this.time = 0;
       this.alertHues = [];             // transient screen flashes
+      this.envoys = [];                // caravans traveling between co-active towns
+      this.roads = new Map();          // "keyA|keyB" -> { a, b, wear, active }
+      this._envoyT = 4;
+    }
+
+    // ---- inter-tribe action: envoys between towns that are BOTH live now ----
+    // (real signal: you're working in two projects in the same window)
+    liveTowns() {
+      const lore = window.Arena.lore, out = [];
+      for (const f of this.factions.values()) if (f.town && lore.vitality(f) > 0.72) out.push(f);
+      return out;
+    }
+    spawnEnvoy(a, b) {
+      if (this.envoys.length > 10 || a === b) return;
+      const key = [a.key, b.key].sort().join('|');
+      let road = this.roads.get(key);
+      if (!road) { road = { a: a.key, b: b.key, wear: 0, active: true }; this.roads.set(key, road); }
+      road.active = true;
+      road.wear = Math.min(1, road.wear + 0.07); // each co-active trip deepens the King's Highway (persists)
+      this.envoys.push({ x: a.x, y: a.y, tx: b.x, ty: b.y, hue: a.hue, fromKey: a.key, toKey: b.key, road: key, t: 0, facing: 1, wob: Math.random() * 6 });
+      this.log(`⇄ ${a.name} sends an envoy to ${b.name}`, a.hue);
+    }
+    updateEnvoys(dt) {
+      this._envoyT -= dt;
+      if (this._envoyT <= 0) {
+        this._envoyT = 7 + Math.random() * 9;
+        const live = this.liveTowns();
+        if (live.length >= 2) {
+          const a = live[(Math.random() * live.length) | 0];
+          const b = live[(Math.random() * live.length) | 0];
+          this.spawnEnvoy(a, b);
+        }
+      }
+      // roads are the persistent King's Highway — they accrue tonnage, never fade.
+      for (let i = this.envoys.length - 1; i >= 0; i--) {
+        const e = this.envoys[i]; e.t += dt; e.wob += dt * 6;
+        const dx = e.tx - e.x, dy = e.ty - e.y, d = Math.hypot(dx, dy) || 1;
+        if (d > 4) { e.x += dx / d * 72 * dt; e.y += dy / d * 72 * dt; e.facing = dx >= 0 ? 1 : -1; }
+        if (d <= 5 || e.t > 30) {
+          if (d <= 5) { this.burst(e.x, e.y, e.hue, 7, 'deposit'); this.floater(e.x, e.y - 14, '⇄', e.hue); }
+          const r2 = this.roads.get(e.road); if (r2) r2.active = false;
+          this.envoys.splice(i, 1);
+        }
+      }
     }
 
     // ---- layout -----------------------------------------------------------
     placeFaction(key) {
-      // Loose grid + deterministic per-town jitter so settlements feel scattered
-      // across a land, not lined up in a row.
+      // Golden-angle (phyllotaxis) scatter + per-town jitter: organic, even-density,
+      // never a grid or a row. The dimetric y-squish keeps it map-like.
+      const A = window.Arena.art;
       const i = this.slot++;
-      const cols = 4;
-      const cell = 680;
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const h = window.Arena.art.hash(key);
-      const jx = ((h & 0xff) / 255 - 0.5) * cell * 0.62;
-      const jy = (((h >> 8) & 0xff) / 255 - 0.5) * cell * 0.62;
-      const x = 520 + col * cell + (row % 2) * cell * 0.5 + jx;
-      const y = 460 + row * cell + jy;
-      return { x, y };
+      const ang = i * 2.399963229; // golden angle
+      const rad = 230 + Math.sqrt(i + 0.5) * 330;   // tighter so the land feels settled
+      const h = A.hash(key);
+      const jx = ((h & 0xff) / 255 - 0.5) * 180;
+      const jy = (((h >> 8) & 0xff) / 255 - 0.5) * 180;
+      return { x: Math.cos(ang) * rad + jx, y: Math.sin(ang) * rad * 0.82 + jy };
     }
 
     ensureFaction(n) {
@@ -276,7 +317,7 @@
         case 'PreToolUse': {
           const u = this.workerFor(f, n.sessionId);
           u.lastActive = this.time;
-          u.tool = n.tool; u.actions++;
+          u.tool = n.tool; u.actions++; u.turnWork = (u.turnWork || 0) + 1;
           if (u.actions >= 12 && !u.veteran) u.veteran = true;
           const st = TOOL_STATION[n.tool] || 'mineral';
           if (st === 'spawn') {
@@ -319,6 +360,16 @@
           const u = this.workerFor(f, n.sessionId);
           u.state = 'returning'; u.stateT = 0; u.tx = f.x; u.ty = f.y; u.rest = true;
           this.floater(f.x, f.y - 30, '✓', f.hue);
+          // The Stop-Beat: the town exhales — a warm bloom scaled by how much real
+          // work this turn earned. The single heartbeat of the world.
+          const work = u.turnWork || 1; u.turnWork = 0;
+          f.exhale = Math.min(1, 0.3 + work / 22);
+          f.exhaleT = 2.6;
+          f.resources += Math.round(Math.pow(work, 0.85)); // banked work crystallizes
+          this.floater(f.x, f.y - 44, '+' + Math.round(Math.pow(work, 0.85)), 45);
+          // pump that work down a road to a co-active neighbour
+          const live = this.liveTowns().filter((x) => x !== f);
+          if (live.length) this.spawnEnvoy(f, live[(Math.random() * live.length) | 0]);
           break;
         }
         case 'SessionEnd': {
@@ -342,11 +393,13 @@
     // ---- per-frame update -------------------------------------------------
     update(dt) {
       this.time += dt;
+      this.updateEnvoys(dt);
 
       for (const f of this.factions.values()) {
         f.beacon = Math.max(0, f.beacon - dt);
         f.storm = Math.max(0, f.storm - dt * 0.6);
         f.spawnFlash = Math.max(0, f.spawnFlash - dt);
+        if (f.exhaleT) f.exhaleT = Math.max(0, f.exhaleT - dt);
         for (const s of Object.values(f.stations)) s.pulse = Math.max(0, s.pulse - dt * 1.5);
       }
 

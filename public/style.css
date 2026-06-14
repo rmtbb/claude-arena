@@ -167,6 +167,33 @@ body:active { cursor: grabbing; }
 .f-customize label { margin-top: 8px; }
 #unit-tip { position: fixed; z-index: 12; pointer-events: none; display: none; }
 
+/* toolbar active state (History) */
+#toolbar button.on { border-color: var(--accent); color: var(--accent); background: rgba(108,198,255,0.12); }
+
+/* time-lapse replay bar */
+#replay {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%) translateY(20px);
+  display: none; align-items: center; gap: 12px; z-index: 11; width: min(720px, 92vw);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 10px 14px; backdrop-filter: blur(12px); box-shadow: 0 16px 50px rgba(0,0,0,0.5);
+}
+#replay.open { display: flex; animation: rpin 0.25s forwards; }
+@keyframes rpin { to { transform: translateX(-50%) translateY(0); } }
+#replay button { background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--fg);
+  font: inherit; font-size: 12px; border-radius: 8px; padding: 7px 9px; cursor: pointer; }
+#replay button:hover { border-color: var(--accent); }
+#rp-play { font-size: 13px; min-width: 36px; }
+.rp-mid { flex: 1; }
+.rp-top { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);
+  font-family: ui-monospace, monospace; margin-bottom: 4px; }
+#rp-when { color: var(--fg); font-weight: 700; }
+#rp-scrub { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.rp-speeds { display: flex; gap: 3px; }
+.rp-speeds button { padding: 6px 7px; font-size: 11px; }
+.rp-speeds button.on { background: var(--accent); color: #06121c; border-color: transparent; font-weight: 700; }
+#rp-live { color: #ff8aa8; font-weight: 700; letter-spacing: 0.5px; }
+@media (max-width: 640px) { .rp-speeds button { padding: 5px 5px; } #replay { gap: 7px; padding: 8px; } }
+
 @media (max-width: 640px) {
   .subtitle, #hint { display: none; }
   #ticker-wrap { max-width: 90vw; }

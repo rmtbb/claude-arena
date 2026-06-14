@@ -80,6 +80,7 @@
 
   function handleClick(sx, sy) {
     const w = screenToWorld(sx, sy);
+    if (dropMode) { placeDrop(w.x, w.y); return; }
     let best = null, bd = 1e9;
     for (const f of sim.factions.values()) {
       const d = Math.hypot(f.x - w.x, f.y - w.y);
@@ -107,6 +108,7 @@
         if (f && n.event === 'PreToolUse') sim.log(`· ${f.name} — ${n.tool || 'works'}`, f.hue);
       });
       computeReturnBeat(s.factions || []);
+      syncDrops();
       fitView(true);
       updateHud();
     } catch (e) { /* server may not be ready */ }
@@ -152,10 +154,13 @@
   }
   document.getElementById('crier-x').onclick = () => document.getElementById('crier').classList.remove('open');
 
+  let es = null;
   function connect() {
-    const es = new EventSource('/api/stream');
+    if (es) { try { es.close(); } catch (_) {} }
+    es = new EventSource('/api/stream');
     es.onmessage = (e) => {
-      try { const n = JSON.parse(e.data); sim.applyEvent(n); flashLive(); } catch (_) {}
+      if (replay) return; // ignore live events while scrubbing history
+      try { const n = JSON.parse(e.data); sim.applyEvent(n); if (n.event === 'Stop') growDropsOnStop(n.projectKey); flashLive(); } catch (_) {}
     };
     es.addEventListener('hello', () => {});
     es.onerror = () => { /* EventSource auto-reconnects */ };
@@ -163,8 +168,54 @@
 
   // periodic resync of authoritative faction stats (level/resources/name)
   setInterval(async () => {
+    if (replay) return;
     try { const r = await fetch('/api/state'); const s = await r.json(); for (const m of s.factions) sim.applyFactionMeta(m); updateHud(); } catch (_) {}
   }, 8000);
+
+  // ---- time-lapse replay ---------------------------------------------------
+  let replay = null;
+  const SPEED_H = { '0.5': 0.5, '6': 6, '24': 24, '120': 120 };
+  function fmtWhen(ms) { const d = new Date(ms); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
+  async function enterReplay() {
+    if (replay) return;
+    document.getElementById('btn-history').classList.add('on');
+    const r = new Arena.Replay(sim);
+    const meta = await r.load();
+    if (!r.events.length) { sim.log('No history yet — go do some work!', 200); document.getElementById('btn-history').classList.remove('on'); return; }
+    replay = r;
+    document.getElementById('replay').classList.add('open');
+    // start ~3 days before the end (or at the very start if shorter)
+    const span = r.to - r.from;
+    const startAt = span > 3 * 86400000 ? r.to - 3 * 86400000 : r.from;
+    r.speed = 24 * 3600000; r.seek(startAt); r.playing = true;
+    setReplaySpeedUI('24');
+    document.getElementById('rp-play').textContent = '❚❚';
+    autoFrame = true;
+  }
+  function exitReplay() {
+    if (!replay) return;
+    replay = null;
+    Arena.lore.setNow(null); Arena.art.setPhase(null);
+    document.getElementById('replay').classList.remove('open');
+    document.getElementById('btn-history').classList.remove('on');
+    // rebuild the live world
+    const r2 = new Arena.Replay(sim); r2.reset();
+    loadState().then(() => connect());
+    autoFrame = true; fitView(false);
+  }
+  function setReplaySpeedUI(sp) { document.querySelectorAll('#rp-speeds button').forEach((b) => b.classList.toggle('on', b.dataset.sp === sp)); }
+  function updateReplayUI() {
+    if (!replay) return;
+    document.getElementById('rp-when').textContent = fmtWhen(replay.clock);
+    const span = replay.to - replay.from || 1;
+    document.getElementById('rp-scrub').value = Math.round(((replay.clock - replay.from) / span) * 1000);
+    document.getElementById('rp-play').textContent = replay.playing ? '❚❚' : '▶';
+  }
+  document.getElementById('btn-history').onclick = () => { replay ? exitReplay() : enterReplay(); };
+  document.getElementById('rp-live').onclick = exitReplay;
+  document.getElementById('rp-play').onclick = () => { if (replay) { replay.playing = !replay.playing; if (replay.clock >= replay.to) replay.seek(replay.from); } };
+  document.getElementById('rp-scrub').addEventListener('input', (e) => { if (!replay) return; const span = replay.to - replay.from; replay.playing = false; replay.seek(replay.from + (e.target.value / 1000) * span); });
+  document.querySelectorAll('#rp-speeds button').forEach((b) => b.onclick = () => { if (!replay) return; replay.speed = SPEED_H[b.dataset.sp] * 3600000; setReplaySpeedUI(b.dataset.sp); });
 
   // ---- shared effects draw (world space) -----------------------------------
   function drawEffects() {
@@ -335,6 +386,37 @@
   panel.querySelector('#c-save').onclick = () => applyCurate(true);
   panel.querySelector('#c-close').onclick = closeCurate;
 
+  // ---- player agency: Folk-Drops (plant things that grow from real work) ----
+  let dropMode = false;
+  let dropStore = {};
+  try { dropStore = JSON.parse(localStorage.getItem('arena.drops')) || {}; } catch (_) { dropStore = {}; }
+  function saveDrops() { try { localStorage.setItem('arena.drops', JSON.stringify(dropStore)); } catch (_) {} }
+  function syncDrops() { for (const f of sim.factions.values()) f.drops = dropStore[f.key] || (dropStore[f.key] = []); }
+  function placeDrop(wx, wy) {
+    let best = null, bd = 1e9;
+    for (const f of sim.factions.values()) { const d = Math.hypot(f.x - wx, f.y - wy); const r = f.town ? f.town.territory : 90; if (d < r && d < bd) { bd = d; best = f; } }
+    if (!best) { sim.log('Plant inside a town\'s land.', 200); return; }
+    if (!dropStore[best.key]) dropStore[best.key] = [];
+    dropStore[best.key].push({ x: wx - best.x, y: wy - best.y, kind: 'sapling', growth: 0 });
+    best.drops = dropStore[best.key]; saveDrops();
+    sim.burst(wx, wy, 120, 8, 'deposit'); sim.floater(wx, wy - 10, '🌱', 120);
+    sim.log(`🌱 You plant a sapling in ${best.name} — it grows as the project works`, best.hue);
+    dropMode = false; document.getElementById('btn-plant').classList.remove('on'); canvas.style.cursor = '';
+  }
+  // a Stop-Beat feeds growth to that town's drops
+  function growDropsOnStop(key) {
+    const arr = dropStore[key]; if (!arr || !arr.length) return;
+    for (const d of arr) d.growth = Math.min(1, (d.growth || 0) + 0.06);
+    saveDrops();
+  }
+  setInterval(syncDrops, 1500);
+  document.getElementById('btn-plant').onclick = () => {
+    dropMode = !dropMode;
+    document.getElementById('btn-plant').classList.toggle('on', dropMode);
+    canvas.style.cursor = dropMode ? 'crosshair' : '';
+    if (dropMode) sim.log('Plant mode — click inside a town to plant a sapling', 200);
+  };
+
   // ---- toolbar actions -----------------------------------------------------
   document.getElementById('btn-frame').onclick = () => { autoFrame = true; fitView(false); };
   document.getElementById('btn-demo').onclick = () => fetch('/api/demo', { method: 'POST' }).catch(() => {});
@@ -363,6 +445,7 @@
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (replay) { replay.step(dt); updateReplayUI(); }
     sim.update(dt);
 
     // camera easing

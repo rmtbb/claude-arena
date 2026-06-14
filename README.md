@@ -102,7 +102,7 @@ The whole thing is a state machine fed by Claude Code's hook events:
 | ↳ `Task` / `Agent` / `Workflow` | → spawns a **drone** that fans out (your subagent!) |
 | `PostToolUse` | Worker hauls the resource home, **+1** pops, the stockpile grows. Errors make it **stumble** in red. |
 | `SubagentStop` | A drone zooms back to base and merges in a flash. |
-| `Stop` | The session's worker heads home and naps (**z**) by the command center. |
+| `Stop` | The **Stop-Beat**: the town exhales a warm bloom (scaled by the turn's work), mints the banked work into its coffers, fires a caravan down the King's Highway, feeds your planted saplings, and the worker heads home to nap (**z**). |
 | `SessionEnd` | The worker salutes and walks back in. Gone, but its work counts forever. |
 | `Notification` | The base fires a beacon ping. |
 | `PreCompact` | A **memory storm** — units swirl around the base while context compacts. |
@@ -119,12 +119,41 @@ coral, a longer neon perimeter. Leave it running a week and your busiest project
 visibly becomes a sprawling capital while that repo you touched twice stays a
 humble outpost.
 
+## A living, interactive world
+
+It isn't a static diorama — it lives, and you can shape it:
+
+- **One tribe per project.** Every session launched anywhere inside a project
+  folder (even deep subfolders like `myproj/outputs/run-3`) rolls up to the same
+  tribe — resolved to the project root server-side.
+- **The Stop-Beat.** Finishing a turn (the `Stop` hook) makes the town *exhale*:
+  a warm tide of light blooms from the keep, scaled by how much work that turn
+  did, and the work crystallizes into the town's coffers. The single heartbeat of
+  the world, landing exactly when *you* feel done.
+- **Inter-tribe action.** Work two projects in the same window and a **King's
+  Highway** wears in between their towns — it accrues and deepens over time
+  (desire-path → cobbled road) and **caravans** trundle along it on each Stop.
+- **Plant things that grow from your work.** Hit **🌱 Plant**, click inside a
+  town, and drop a sapling. It grows into a grove fed by that town's real
+  Stop-Beats — a little life of its own, persisted across visits.
+- **Wilder land.** Towns scatter organically across terrain with ponds, forest
+  clusters, and rocky outcrops; fireflies drift around living towns at night;
+  neglected towns sink into a beautiful teal-and-amber dusk instead of going grey.
+
+## ⏳ Watch the whole history
+
+Hit **⏳ History** to drop into a **time-lapse**. Scrub the timeline to any
+moment, play forward at ½h/s up to 5 days/sec, and watch your towns rise from a
+single Outpost — eras crossing, walls going up, day and night flickering past.
+It replays the real timestamped event log, rebuilding the world exactly as it was
+at any point. Hit **● LIVE** to snap back to now.
+
 ## Curate your tribes
 
-Click any base to **rename** it (defaults to your folder name, prettified —
-`my-cool-app` → "My Cool App"), give it a **motto**, and pick its **color** and
-**crest**. Edits persist in `~/.claude/claude-arena/overrides.json`. Build your
-little lore.
+Click any town to zoom in and open its **dossier** — era, founding date, named
+heroes, milestone Chronicle — then **rename** it (defaults to your folder name,
+prettified — `my-cool-app` → "My Cool App"), give it a **motto**, and pick its
+**color** and **crest**. Edits persist in `~/.claude/claude-arena/overrides.json`.
 
 ## Controls
 
@@ -132,8 +161,9 @@ little lore.
 |---|---|
 | Pan / Zoom | drag / scroll |
 | Frame everything | **R** or the ⤢ button |
-| Toggle auto-framing | **Space** |
 | Inspect / curate a town | click it (camera zooms in + dossier opens) |
+| Plant a sapling | **🌱 Plant**, then click inside a town |
+| Time-lapse history | **⏳ History** (scrub + speed; **● LIVE** to exit) |
 | Postcard | the ⤓ button (stamps name · era · stats) |
 
 ## Privacy (the short, honest version)
@@ -182,7 +212,8 @@ public/
   lore.js                  eras · vitality · patina · fingerprint · milestones (pure, from real data)
   sim.js                   the world — towns built from history, named units, drones
   renderers/rts.js         the procedural RTS renderer
-  game.js                  bootstrap: camera, input, panel, return-beat, postcard
+  replay.js                time-lapse: re-grows the world at any point in history
+  game.js                  bootstrap: camera, input, panel, return-beat, plant, history, postcard
 site/                      the landing page (the public demo at claudearena.remotebb.com)
 ```
 

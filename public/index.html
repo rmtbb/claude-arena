@@ -35,8 +35,26 @@
   <!-- toolbar -->
   <div id="toolbar">
     <button id="btn-frame" title="Frame all (R)">⤢ Frame</button>
+    <button id="btn-plant" title="Plant a sapling in a town — it grows as the project works">🌱 Plant</button>
+    <button id="btn-history" title="Watch the whole history as a time-lapse">⏳ History</button>
     <button id="btn-demo" title="Inject a burst of demo life">✦ Demo</button>
-    <button id="btn-shot" title="Save a screenshot">⤓ Shot</button>
+    <button id="btn-shot" title="Save a postcard">⤓ Shot</button>
+  </div>
+
+  <!-- time-lapse replay controls -->
+  <div id="replay">
+    <button id="rp-play" title="Play / pause">▶</button>
+    <div class="rp-mid">
+      <div class="rp-top"><span id="rp-when">—</span><span id="rp-speedlbl"></span></div>
+      <input id="rp-scrub" type="range" min="0" max="1000" value="1000" step="1" />
+    </div>
+    <div class="rp-speeds">
+      <button data-sp="0.5">½h/s</button>
+      <button data-sp="6">6h/s</button>
+      <button data-sp="24" class="on">1d/s</button>
+      <button data-sp="120">5d/s</button>
+    </div>
+    <button id="rp-live" title="Return to live">● LIVE</button>
   </div>
 
   <!-- ticker -->
@@ -81,6 +99,7 @@
   <script src="/art.js"></script>
   <script src="/lore.js"></script>
   <script src="/sim.js"></script>
+  <script src="/replay.js"></script>
   <script src="/renderers/rts.js"></script>
   <script src="/game.js"></script>
 </body>

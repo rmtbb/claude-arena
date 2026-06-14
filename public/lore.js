@@ -13,6 +13,11 @@
   'use strict';
   const DAY = 86400000, HOUR = 3600000;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // "now" override so time-lapse replay evaluates age/vitality/patina against
+  // the REPLAY clock instead of the wall clock. null = live (real now).
+  let nowOverride = null;
+  function setNow(ms) { nowOverride = ms; }
+  function now() { return nowOverride == null ? Date.now() : nowOverride; }
 
   // PreToolUse tool -> building category (mirrors the renderer mapping)
   const TOOL_CAT = {
@@ -30,7 +35,7 @@
     let e = 0;
     for (let i = 0; i < ERA_TOOLS.length; i++) if (tools >= ERA_TOOLS[i]) e = i;
     // a long-lived town never feels like a raw camp even if light-touch
-    const ageDays = f.firstSeen ? (Date.now() - f.firstSeen) / DAY : 0;
+    const ageDays = f.firstSeen ? (now() - f.firstSeen) / DAY : 0;
     if (ageDays > 14 && e < 1) e = 1;
     if (ageDays > 60 && e < 2) e = 2;
     return e;
@@ -47,7 +52,7 @@
   // reversible liveness: 1 if worked in the last ~2h, easing to a low floor over ~14 days idle
   function vitality(f) {
     if (!f.lastSeen) return 0.4;
-    const h = (Date.now() - f.lastSeen) / HOUR;
+    const h = (now() - f.lastSeen) / HOUR;
     if (h < 2) return 1;
     const span = 14 * 24;            // hours to reach the floor
     const t = clamp(Math.log10(1 + h / 2) / Math.log10(1 + span / 2), 0, 1);
@@ -55,7 +60,7 @@
   }
   function idleLabel(f) {
     if (!f.lastSeen) return 'never';
-    const m = (Date.now() - f.lastSeen) / 60000;
+    const m = (now() - f.lastSeen) / 60000;
     if (m < 3) return 'active now';
     if (m < 90) return Math.round(m) + ' min ago';
     if (m < 36 * 60) return Math.round(m / 60) + ' hr ago';
@@ -65,7 +70,7 @@
   // one-way weathering: grows with age and lifetime work, never resets
   function patina(f) {
     const tools = f.totalTools || 0;
-    const ageDays = f.firstSeen ? (Date.now() - f.firstSeen) / DAY : 0;
+    const ageDays = f.firstSeen ? (now() - f.firstSeen) / DAY : 0;
     const byTools = clamp(Math.log10(1 + tools) / Math.log10(1 + 50000), 0, 1);
     const byAge = clamp(ageDays / 120, 0, 1);
     return clamp(Math.max(byTools, byAge * 0.7), 0, 1);
@@ -103,13 +108,14 @@
     if (sub >= 100) out.push('100 subagents deployed');
     if ((f.preCompacts || 0) >= 1) out.push('survived a memory storm');
     if ((f.preCompacts || 0) >= 10) out.push('weathered 10 memory storms');
-    const ageDays = f.firstSeen ? (Date.now() - f.firstSeen) / DAY : 0;
+    const ageDays = f.firstSeen ? (now() - f.firstSeen) / DAY : 0;
     [7, 30, 90, 365].forEach((n) => { if (ageDays >= n) out.push(n >= 365 ? 'one year old' : n + ' days old'); });
     return out;
   }
 
   window.Arena = window.Arena || {};
   window.Arena.lore = {
+    setNow, now,
     ERAS, eraIndex, eraName, eraProgress, nextEra,
     vitality, idleLabel, patina, gilded, fingerprint, character, milestones,
   };
